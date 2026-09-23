@@ -8,6 +8,8 @@
  */
 
 import * as vscode from 'vscode';
+import { earliestFiveHourReset, formatMinutes, hasHeadroom, hiddenModelConstraint } from './analysis';
+import { effectiveUsage } from './statusBar';
 import { log } from './log';
 import { Account, ListPayload } from './types';
 
@@ -24,6 +26,13 @@ function daysUntil(iso: string): number | undefined {
 export class Notices {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
+  /**
+   * Whether every account was spent on the previous check. Held in memory rather
+   * than persisted: it exists to detect the *transition* back to having quota, and
+   * after a window reload the fresh reading is the truth, not a remembered state.
+   */
+  private allSpent = false;
+
   /** Identity, not slot number: slots get reused when accounts are re-added. */
   private key(kind: string, account: Account): string {
     return `notice:${kind}:${account.email}:${account.organizationUuid ?? ''}`;
@@ -38,10 +47,11 @@ export class Notices {
     void this.context.globalState.update(key, Date.now());
   }
 
-  check(payload: ListPayload): void {
+  check(payload: ListPayload, threshold: number): void {
     const config = vscode.workspace.getConfiguration('claudeSwap');
     const expiryDays = config.get<number>('warnLoginExpiryDays') ?? 3;
     const showPace = config.get<boolean>('showPaceWarnings') ?? true;
+    const resetAlarm = config.get<boolean>('notifyOnReset') ?? true;
 
     for (const account of payload.accounts) {
       if (expiryDays > 0) {
@@ -50,7 +60,101 @@ export class Notices {
       if (showPace) {
         this.checkPace(account);
       }
+      this.checkHiddenModelLimit(account);
     }
+
+    this.checkExhaustion(payload, threshold, resetAlarm);
+  }
+
+  /**
+   * Notify on the *transition* out of "everything spent", rather than scheduling a
+   * timer for the reset moment. A transition detector needs no clock arithmetic,
+   * survives the machine sleeping through the reset, and cannot fire twice.
+   */
+  private checkExhaustion(payload: ListPayload, threshold: number, notify: boolean): void {
+    const anyHeadroom = payload.accounts.some((a) => hasHeadroom(a, threshold));
+
+    if (!anyHeadroom) {
+      if (!this.allSpent) {
+        this.allSpent = true;
+        const reset = earliestFiveHourReset(payload.accounts);
+        const wait =
+          reset !== undefined && reset > Date.now()
+            ? ` The soonest 5-hour window reopens in about ${formatMinutes((reset - Date.now()) / 60_000)}.`
+            : '';
+        log('notice: all accounts exhausted');
+        if (notify) {
+          void vscode.window.showWarningMessage(
+            `Claude Swap: every account is at or past ${Math.round(threshold)}%.${wait}`
+          );
+        }
+      }
+      return;
+    }
+
+    if (this.allSpent) {
+      this.allSpent = false;
+      log('notice: quota available again');
+      if (notify) {
+        const freed = payload.accounts.find((a) => hasHeadroom(a, threshold));
+        void vscode.window
+          .showInformationMessage(
+            `Claude Swap: quota is available again — account #${freed?.number} has room.`,
+            'Switch to it',
+            'OK'
+          )
+          .then((choice) => {
+            if (choice === 'Switch to it' && freed) {
+              void vscode.commands.executeCommand(
+                'claudeSwap.switchToAccount',
+                String(freed.number)
+              );
+            }
+          });
+      }
+    }
+  }
+
+  /**
+   * A per-model weekly limit can be the thing that actually stops you while the
+   * account-level percentage still looks fine. Auto-switch ignores per-model
+   * windows unless `autoswitch.model` names one, so this both warns and says how
+   * to make switching account for it.
+   */
+  private checkHiddenModelLimit(account: Account): void {
+    const effective = effectiveUsage(account);
+    if (!effective) {
+      return;
+    }
+    const hidden = hiddenModelConstraint(effective.usage);
+    if (!hidden || hidden.pct < 70) {
+      return;
+    }
+    const key = this.key(`model:${hidden.name ?? '?'}`, account);
+    if (this.alreadySaidToday(key)) {
+      return;
+    }
+    log(`notice: account ${account.number} model window ${hidden.name} at ${hidden.pct}%`);
+    this.markSaid(key);
+
+    const name = hidden.name ?? 'a model';
+    void vscode.window
+      .showWarningMessage(
+        `Claude Swap: account #${account.number} has used ${Math.round(hidden.pct)}% of its ` +
+          `weekly ${name} limit — further along than its overall limits, so this is what will ` +
+          'stop you first. Auto-switch ignores per-model limits unless you tell it not to.',
+        'How?',
+        'Dismiss'
+      )
+      .then((choice) => {
+        if (choice === 'How?') {
+          void vscode.window.showInformationMessage(
+            `Run this in a terminal to make auto-switch account for the ${name} limit too:\n\n` +
+              `cswap config set autoswitch.model ${name}`,
+            { modal: true }
+          );
+        }
+      });
   }
 
   /**

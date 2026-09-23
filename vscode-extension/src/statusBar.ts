@@ -1,15 +1,27 @@
 /** Rendering of the status bar item and its hover tooltip. */
 
 import * as vscode from 'vscode';
-import { Account, ListPayload, Usage, UsageStatus, UsageWindow } from './types';
+import {
+  BurnRate,
+  bindingWindow,
+  earliestFiveHourReset,
+  effectiveUsage,
+  formatMinutes,
+  hasHeadroom,
+  hiddenModelConstraint,
+  worstScopedWindow,
+} from './analysis';
+import { Account, ListPayload, UsageStatus, UsageWindow } from './types';
 
 /** Above this, the item turns red; the default auto-switch threshold is 90. */
 const PCT_DANGER = 90;
 /** Above this, the item turns amber. */
 const PCT_WARN = 75;
+/** Beyond this many accounts, the status bar shows only the active one. */
+const MAX_ACCOUNTS_INLINE = 4;
 
 /** Short human labels for the non-ok usage states. */
-const STATUS_LABELS: Record<UsageStatus, string> = {
+export const STATUS_LABELS: Record<UsageStatus, string> = {
   ok: 'ok',
   token_expired: 'token expired',
   api_key: 'API key (no quota)',
@@ -20,41 +32,8 @@ const STATUS_LABELS: Record<UsageStatus, string> = {
   unavailable: 'usage unavailable',
 };
 
-function pct(value: number): string {
+export function pct(value: number): string {
   return `${Math.round(value)}%`;
-}
-
-/** The usage we can actually show: live if present, else the last known good. */
-export function effectiveUsage(account: Account): { usage: Usage; stale: boolean } | undefined {
-  if (account.usage) {
-    return { usage: account.usage, stale: false };
-  }
-  if (account.lastGoodUsage) {
-    return { usage: account.lastGoodUsage, stale: true };
-  }
-  return undefined;
-}
-
-/**
- * The window that decides this account's fate: the higher of 5h and 7d. This is
- * the same "binding window" idea the auto-switch engine uses, so the status bar
- * and the switching policy never disagree about how close you are.
- */
-export function bindingWindow(
-  usage: Usage
-): { label: '5h' | '7d'; window: UsageWindow } | undefined {
-  const five = usage.fiveHour;
-  const seven = usage.sevenDay;
-  if (five && seven) {
-    return seven.pct > five.pct ? { label: '7d', window: seven } : { label: '5h', window: five };
-  }
-  if (five) {
-    return { label: '5h', window: five };
-  }
-  if (seven) {
-    return { label: '7d', window: seven };
-  }
-  return undefined;
 }
 
 function describeWindow(window: UsageWindow): string {
@@ -76,12 +55,27 @@ function ageNote(seconds: number | undefined): string {
   return ` _(${Math.round(minutes / 60)}h ago)_`;
 }
 
-function daysUntil(iso: string): number | undefined {
+export function daysUntil(iso: string): number | undefined {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) {
     return undefined;
   }
   return (then - Date.now()) / 86_400_000;
+}
+
+/** "burning ~9%/h · about 2h 40m left" — or undefined when not yet knowable. */
+export function describeBurnRate(rate: BurnRate | undefined): string | undefined {
+  if (!rate) {
+    return undefined;
+  }
+  if (rate.pctPerHour < 0.5) {
+    return 'not being consumed right now';
+  }
+  const head = `burning ~${rate.pctPerHour.toFixed(1)}%/h`;
+  if (rate.minutesToFull === null) {
+    return head;
+  }
+  return `${head} · about ${formatMinutes(rate.minutesToFull)} of headroom`;
 }
 
 function accountTitle(account: Account): string {
@@ -98,7 +92,7 @@ function accountTitle(account: Account): string {
   return `${marker} **#${account.number}**${alias} ${account.email}${suffix}`;
 }
 
-function accountLines(account: Account): string[] {
+function accountLines(account: Account, rate: BurnRate | undefined): string[] {
   const lines = [accountTitle(account)];
   const effective = effectiveUsage(account);
 
@@ -115,6 +109,10 @@ function accountLines(account: Account): string[] {
 
   if (usage.fiveHour) {
     lines.push(`　　5-hour: ${describeWindow(usage.fiveHour)}${ageNote(age)}`);
+    const burn = describeBurnRate(rate);
+    if (burn) {
+      lines.push(`　　　${burn}`);
+    }
   }
   if (usage.sevenDay) {
     let line = `　　Weekly: ${describeWindow(usage.sevenDay)}`;
@@ -126,9 +124,13 @@ function accountLines(account: Account): string[] {
       lines.push('　　⚠ projected to run out before the weekly reset');
     }
   }
+
+  const hidden = hiddenModelConstraint(usage);
   for (const scoped of usage.scoped ?? []) {
-    lines.push(`　　${scoped.name ?? 'model'}: ${describeWindow(scoped)}`);
+    const flag = scoped === hidden ? ' ⚠ **this is your real limit**' : '';
+    lines.push(`　　${scoped.name ?? 'model'}: ${describeWindow(scoped)}${flag}`);
   }
+
   if (usage.spend) {
     lines.push(
       `　　Spend: ${pct(usage.spend.pct)} of ${usage.spend.limit} ${usage.spend.currency}`
@@ -142,10 +144,20 @@ function accountLines(account: Account): string[] {
     const days = daysUntil(account.loginExpiresAt);
     if (days !== undefined && days < 7) {
       const when = days < 1 ? 'less than a day' : `${Math.floor(days)} days`;
-      lines.push(`　　⚠ login expires in ${when} — run \`/login\` then \`cswap add --slot ${account.number}\``);
+      lines.push(
+        `　　⚠ login expires in ${when} — run \`/login\` then \`cswap add --slot ${account.number}\``
+      );
     }
   }
   return lines;
+}
+
+/** One compact `#2 19%` chunk, used when showing every account inline. */
+function inlineChunk(account: Account): string {
+  const effective = effectiveUsage(account);
+  const binding = effective ? bindingWindow(effective.usage) : undefined;
+  const value = binding ? pct(binding.window.pct) : '—';
+  return `#${account.number} ${value}`;
 }
 
 export interface StatusBarModel {
@@ -154,6 +166,8 @@ export interface StatusBarModel {
   autoSwitchEnabled: boolean;
   threshold?: number;
   lastUpdated?: Date;
+  /** Burn rate per account number, for the tooltip. */
+  rates?: Map<number, BurnRate | undefined>;
 }
 
 export class StatusBar {
@@ -175,29 +189,48 @@ export class StatusBar {
     this.item.backgroundColor = undefined;
   }
 
+  private showAllAccounts(): boolean {
+    return (
+      vscode.workspace.getConfiguration('claudeSwap').get<boolean>('statusBar.showAllAccounts') ??
+      true
+    );
+  }
+
   render(model: StatusBarModel): void {
+    this.item.tooltip = this.buildTooltip(model);
+
     if (model.error) {
       this.item.text = '$(alert) Claude Swap';
       this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-      this.item.tooltip = this.buildTooltip(model);
       return;
     }
 
     const payload = model.payload;
-    const active = payload?.accounts.find((a) => a.active);
-
     if (!payload || payload.accounts.length === 0) {
       this.item.text = '$(account) No accounts';
       this.item.backgroundColor = undefined;
-      this.item.tooltip = this.buildTooltip(model);
       return;
     }
 
+    const active = payload.accounts.find((a) => a.active);
     if (!active) {
-      // Managed accounts exist but the live login is not one of them.
       this.item.text = '$(alert) Unmanaged login';
       this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-      this.item.tooltip = this.buildTooltip(model);
+      return;
+    }
+
+    const threshold = model.threshold ?? PCT_DANGER;
+
+    // Everything exhausted: the only useful number is when you can work again.
+    const anyHeadroom = payload.accounts.some((a) => hasHeadroom(a, threshold));
+    if (!anyHeadroom) {
+      const reset = earliestFiveHourReset(payload.accounts);
+      const wait =
+        reset !== undefined && reset > Date.now()
+          ? ` · back in ${formatMinutes((reset - Date.now()) / 60_000)}`
+          : '';
+      this.item.text = `$(stop-circle) All accounts spent${wait}`;
+      this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
       return;
     }
 
@@ -210,28 +243,42 @@ export class StatusBar {
         active.usageStatus === 'api_key'
           ? undefined
           : new vscode.ThemeColor('statusBarItem.warningBackground');
-      this.item.tooltip = this.buildTooltip(model);
       return;
     }
 
     const value = binding.window.pct;
     const icon = model.autoSwitchEnabled ? '$(sync)' : '$(account)';
-    let text = `${icon} #${active.number} · ${binding.label} ${pct(value)}`;
-    if (value >= PCT_WARN && binding.window.countdown) {
-      text += ` · ${binding.window.countdown}`;
-    }
-    if (effective?.stale) {
-      text += ' $(history)';
+
+    let body: string;
+    if (this.showAllAccounts() && payload.accounts.length <= MAX_ACCOUNTS_INLINE) {
+      // Active account first, then the rest in slot order — a stable layout, so
+      // the number in a given position does not move around between refreshes.
+      const others = payload.accounts.filter((a) => !a.active);
+      body = [
+        `${inlineChunk(active)}`,
+        ...others.map((a) => inlineChunk(a)),
+      ].join(' | ');
+    } else {
+      body = `#${active.number} · ${binding.label} ${pct(value)}`;
+      if (value >= PCT_WARN && binding.window.countdown) {
+        body += ` · ${binding.window.countdown}`;
+      }
     }
 
-    this.item.text = text;
+    // A per-model window far above the account windows is the real constraint,
+    // and the account-level percentage hides it completely.
+    const hidden = effective ? hiddenModelConstraint(effective.usage) : undefined;
+    const hiddenFlag = hidden ? ` $(warning)${hidden.name ?? 'model'} ${pct(hidden.pct)}` : '';
+
+    this.item.text = `${icon} ${body}${hiddenFlag}${effective?.stale ? ' $(history)' : ''}`;
+
+    const worstShown = hidden ? Math.max(value, hidden.pct) : value;
     this.item.backgroundColor =
-      value >= PCT_DANGER
+      worstShown >= PCT_DANGER
         ? new vscode.ThemeColor('statusBarItem.errorBackground')
-        : value >= PCT_WARN
+        : worstShown >= PCT_WARN
           ? new vscode.ThemeColor('statusBarItem.warningBackground')
           : undefined;
-    this.item.tooltip = this.buildTooltip(model);
   }
 
   private buildTooltip(model: StatusBarModel): vscode.MarkdownString {
@@ -249,7 +296,22 @@ export class StatusBar {
       );
     } else {
       for (const account of model.payload.accounts) {
-        md.appendMarkdown(accountLines(account).join('\n\n') + '\n\n');
+        const rate = model.rates?.get(account.number);
+        md.appendMarkdown(accountLines(account, rate).join('\n\n') + '\n\n');
+      }
+
+      const modelHit = model.payload.accounts
+        .map((a) => {
+          const e = effectiveUsage(a);
+          return e ? hiddenModelConstraint(e.usage) : undefined;
+        })
+        .find((w) => w !== undefined);
+      if (modelHit) {
+        md.appendMarkdown(
+          `⚠ A per-model limit (**${modelHit.name}**) is further along than your account ` +
+            'limits. Auto-switch ignores per-model windows unless you tell it not to:\n\n' +
+            `\`cswap config set autoswitch.model ${modelHit.name}\`\n\n`
+        );
       }
       md.appendMarkdown('---\n\n');
     }
@@ -271,3 +333,6 @@ export class StatusBar {
     return md;
   }
 }
+
+// Re-exported so other modules have one import site for display helpers.
+export { bindingWindow, effectiveUsage, worstScopedWindow };

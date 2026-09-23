@@ -64,10 +64,18 @@ function candidatePaths(): string[] {
 
   // A workspace holding the claude-swap source itself (the development case):
   // its virtualenv has a working cswap even when nothing is installed globally.
-  for (const folder of vscode.workspace.workspaceFolders ?? []) {
-    const base = folder.uri.fsPath;
-    out.push(path.join(base, '.venv', 'Scripts', 'cswap.exe'));
-    out.push(path.join(base, '.venv', 'bin', 'cswap'));
+  //
+  // GATED ON WORKSPACE TRUST, and it must stay that way. This path is *inside the
+  // opened folder*, so without the gate, opening any untrusted repository that
+  // happened to contain `.venv/Scripts/cswap.exe` would have this extension
+  // execute that file. Trust is the difference between a convenience and an
+  // arbitrary-code-execution path.
+  if (vscode.workspace.isTrusted) {
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      const base = folder.uri.fsPath;
+      out.push(path.join(base, '.venv', 'Scripts', 'cswap.exe'));
+      out.push(path.join(base, '.venv', 'bin', 'cswap'));
+    }
   }
 
   if (process.platform === 'win32') {

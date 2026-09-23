@@ -1,15 +1,23 @@
 import * as vscode from 'vscode';
+import { BurnRate } from './analysis';
 import { AutoSwitcher } from './autoSwitch';
 import * as cswap from './cswap';
 import { CswapError, CswapNotFoundError } from './cswap';
+import { UsageHistory } from './history';
 import { initLog, log, logError, showLog } from './log';
 import { Notices } from './notices';
-import { StatusBar, effectiveUsage } from './statusBar';
+import { StatusBar, describeBurnRate, effectiveUsage } from './statusBar';
+import { AccountsTreeProvider } from './treeView';
 import { Account, ListPayload } from './types';
+
+/** Fallback when claude-swap's configured threshold cannot be read. */
+const DEFAULT_THRESHOLD = 90;
 
 let statusBar: StatusBar;
 let notices: Notices;
 let autoSwitcher: AutoSwitcher;
+let history: UsageHistory;
+let tree: AccountsTreeProvider;
 let refreshTimer: NodeJS.Timeout | undefined;
 let lastPayload: ListPayload | undefined;
 let threshold: number | undefined;
@@ -21,19 +29,27 @@ export function activate(context: vscode.ExtensionContext): void {
 
   statusBar = new StatusBar();
   notices = new Notices(context);
+  history = new UsageHistory(context);
+  tree = new AccountsTreeProvider();
   autoSwitcher = new AutoSwitcher(() => void refresh());
 
   context.subscriptions.push(
     statusBar,
     autoSwitcher,
+    vscode.window.registerTreeDataProvider('claudeSwap.accounts', tree),
     vscode.commands.registerCommand('claudeSwap.refresh', () => refresh(true)),
     vscode.commands.registerCommand('claudeSwap.switchAccount', switchAccount),
     vscode.commands.registerCommand('claudeSwap.switchBest', switchBest),
+    vscode.commands.registerCommand('claudeSwap.switchToAccount', (target?: string) =>
+      target ? performSwitch(target) : switchAccount()
+    ),
     vscode.commands.registerCommand('claudeSwap.rescue', rescue),
     vscode.commands.registerCommand('claudeSwap.toggleAutoSwitch', toggleAutoSwitch),
     vscode.commands.registerCommand('claudeSwap.bindFolder', bindFolder),
     vscode.commands.registerCommand('claudeSwap.openDashboard', openDashboard),
     vscode.commands.registerCommand('claudeSwap.showLogs', () => showLog()),
+    vscode.commands.registerCommand('claudeSwap.showBurnRate', showBurnRate),
+    vscode.commands.registerCommand('claudeSwap.clearHistory', clearHistory),
     vscode.workspace.onDidChangeConfiguration(onConfigChange)
   );
 
@@ -74,13 +90,25 @@ function restartRefreshTimer(): void {
   log(`status bar refresh every ${seconds}s`);
 }
 
+/** Burn rate per account number, recomputed from stored history on each render. */
+function currentRates(): Map<number, BurnRate | undefined> {
+  const rates = new Map<number, BurnRate | undefined>();
+  for (const account of lastPayload?.accounts ?? []) {
+    rates.set(account.number, history.burnRate(account));
+  }
+  return rates;
+}
+
 function render(): void {
+  const rates = currentRates();
   statusBar.render({
     payload: lastPayload,
     autoSwitchEnabled: autoSwitcher.enabled,
     threshold,
     lastUpdated: lastPayload ? new Date() : undefined,
+    rates,
   });
+  tree.update(lastPayload, rates);
 }
 
 /**
@@ -99,8 +127,11 @@ async function refresh(interactive = false): Promise<void> {
     }
     const payload = await cswap.list();
     lastPayload = payload;
+    // Record before rendering, so a newly-taken sample is available to the rate
+    // shown in this same pass rather than lagging one refresh behind.
+    history.observe(payload.accounts);
     render();
-    notices.check(payload);
+    notices.check(payload, threshold ?? DEFAULT_THRESHOLD);
   } catch (err) {
     handleFailure(err, interactive);
   } finally {
@@ -112,10 +143,9 @@ function handleFailure(err: unknown, interactive: boolean): void {
   logError('refresh', err);
 
   if (err instanceof CswapNotFoundError) {
-    statusBar.render({
-      error: 'cswap was not found. Click to set its location.',
-      autoSwitchEnabled: false,
-    });
+    const message = 'cswap was not found. Click to set its location.';
+    statusBar.render({ error: message, autoSwitchEnabled: false });
+    tree.update(undefined, new Map(), message);
     log(`searched: ${err.searched.join(', ')}`);
     void vscode.window
       .showErrorMessage(
@@ -138,6 +168,7 @@ function handleFailure(err: unknown, interactive: boolean): void {
 
   const message = err instanceof Error ? err.message : String(err);
   statusBar.render({ error: message, autoSwitchEnabled: autoSwitcher.enabled, threshold });
+  tree.update(lastPayload, currentRates(), message);
   if (interactive) {
     void vscode.window.showErrorMessage(`Claude Swap: ${message}`, 'Show logs').then((choice) => {
       if (choice === 'Show logs') {
@@ -365,6 +396,63 @@ async function bindFolder(): Promise<void> {
       `Claude Swap: could not bind folder — ${err instanceof Error ? err.message : String(err)}`
     );
   }
+}
+
+/**
+ * "Can I start a long task right now?" — the burn-rate answer in one place.
+ *
+ * Shown as a modal because it is asked deliberately, and because the answer is an
+ * estimate that deserves its caveat read rather than glimpsed in a corner.
+ */
+async function showBurnRate(): Promise<void> {
+  if (!lastPayload) {
+    await refresh(true);
+  }
+  const payload = lastPayload;
+  if (!payload || payload.accounts.length === 0) {
+    void vscode.window.showInformationMessage('Claude Swap: no accounts are managed yet.');
+    return;
+  }
+
+  const lines: string[] = [];
+  for (const account of payload.accounts) {
+    const rate = history.burnRate(account);
+    const described = describeBurnRate(rate);
+    if (described) {
+      lines.push(`#${account.number} ${account.email}\n    ${described}`);
+    } else {
+      const have = history.sampleCount(account);
+      lines.push(
+        `#${account.number} ${account.email}\n` +
+          `    not enough history yet (${have} reading${have === 1 ? '' : 's'} so far)`
+      );
+    }
+  }
+
+  void vscode.window.showInformationMessage(
+    'How fast is your 5-hour quota going?',
+    {
+      modal: true,
+      detail:
+        lines.join('\n\n') +
+        '\n\nEstimated from readings taken on this machine while VS Code was open, ' +
+        'so it reflects your own recent pace rather than a published figure. ' +
+        'Usage from other machines is included in the percentages but not in the rate.',
+    },
+    'OK'
+  );
+}
+
+async function clearHistory(): Promise<void> {
+  if (!lastPayload) {
+    await refresh(true);
+  }
+  history.clear(lastPayload?.accounts ?? []);
+  log('usage history cleared');
+  render();
+  void vscode.window.showInformationMessage(
+    'Claude Swap: usage history cleared. Burn-rate estimates will rebuild over the next hour.'
+  );
 }
 
 function openDashboard(): void {

@@ -60,6 +60,19 @@
       {
         "command": "claudeSwap.showLogs",
         "title": "Claude Swap: Show Logs"
+      },
+      {
+        "command": "claudeSwap.switchToAccount",
+        "title": "Claude Swap: Switch to Account",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "claudeSwap.showBurnRate",
+        "title": "Claude Swap: How Fast Am I Using Quota?"
+      },
+      {
+        "command": "claudeSwap.clearHistory",
+        "title": "Claude Swap: Clear Usage History"
       }
     ],
     "configuration": {
@@ -68,7 +81,8 @@
         "claudeSwap.executablePath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Full path to the `cswap` executable. Leave empty to search your PATH and the usual install locations. Example: `D:\\\\Files\\\\Projects\\\\claude-swap\\\\.venv\\\\Scripts\\\\cswap.exe`"
+          "markdownDescription": "Full path to the `cswap` executable. Leave empty to search your PATH and the usual `uv`/`pipx` install locations. Set this if you installed claude-swap somewhere unusual, or if you run it from a virtualenv — for example `C:/tools/claude-swap/.venv/Scripts/cswap.exe` on Windows, or `~/.local/bin/cswap` on macOS and Linux.",
+          "scope": "machine"
         },
         "claudeSwap.refreshIntervalSeconds": {
           "type": "number",
@@ -102,20 +116,100 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Warn when an account is burning its weekly quota fast enough that it is projected to run out before the weekly reset. This is a rough linear projection, not a promise."
+        },
+        "claudeSwap.statusBar.showAllAccounts": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show every account's usage in the status bar (`#2 19% | #1 61%`) rather than only the active one. Automatically falls back to the active account alone when you manage more than four."
+        },
+        "claudeSwap.notifyOnReset": {
+          "type": "boolean",
+          "default": true,
+          "description": "Notify when every account is spent, and again the moment quota becomes available."
         }
       }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claudeSwap",
+          "title": "Claude Swap",
+          "icon": "media/claude-swap.svg"
+        }
+      ]
+    },
+    "views": {
+      "claudeSwap": [
+        {
+          "id": "claudeSwap.accounts",
+          "name": "Accounts",
+          "icon": "media/claude-swap.svg"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "claudeSwap.switchToAccount",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "claudeSwap.refresh",
+          "when": "view == claudeSwap.accounts",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeSwap.switchBest",
+          "when": "view == claudeSwap.accounts",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeSwap.showBurnRate",
+          "when": "view == claudeSwap.accounts",
+          "group": "1_info"
+        },
+        {
+          "command": "claudeSwap.toggleAutoSwitch",
+          "when": "view == claudeSwap.accounts",
+          "group": "1_info"
+        },
+        {
+          "command": "claudeSwap.clearHistory",
+          "when": "view == claudeSwap.accounts",
+          "group": "9_danger"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "claudeSwap.switchToAccount",
+          "when": "view == claudeSwap.accounts && viewItem == switchableAccount",
+          "group": "inline"
+        }
+      ]
     }
   },
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies",
+    "test": "npm run compile && node --test \"out/test/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.2.1",
     "typescript": "^5.4.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Claude Swap runs the cswap executable and can change which Claude account you are logged in as. In an untrusted workspace it will not look for cswap inside the opened folder, and the executable path cannot be set by the workspace.",
+      "restrictedConfigurations": [
+        "claudeSwap.executablePath"
+      ]
+    }
   }
 }
