@@ -1,0 +1,124 @@
+/**
+ * Proactive warnings drawn from data the CLI has but does not push at you.
+ *
+ * Both warnings here are deliberately once-per-day-per-account. A nag that fires
+ * on every refresh gets dismissed reflexively and then ignored when it matters,
+ * so the state of what has already been said is persisted in globalState rather
+ * than kept in memory (where a window reload would reset it).
+ */
+
+import * as vscode from 'vscode';
+import { log } from './log';
+import { Account, ListPayload } from './types';
+
+const DAY_MS = 86_400_000;
+
+function daysUntil(iso: string): number | undefined {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) {
+    return undefined;
+  }
+  return (then - Date.now()) / DAY_MS;
+}
+
+export class Notices {
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  /** Identity, not slot number: slots get reused when accounts are re-added. */
+  private key(kind: string, account: Account): string {
+    return `notice:${kind}:${account.email}:${account.organizationUuid ?? ''}`;
+  }
+
+  private alreadySaidToday(key: string): boolean {
+    const last = this.context.globalState.get<number>(key);
+    return last !== undefined && Date.now() - last < DAY_MS;
+  }
+
+  private markSaid(key: string): void {
+    void this.context.globalState.update(key, Date.now());
+  }
+
+  check(payload: ListPayload): void {
+    const config = vscode.workspace.getConfiguration('claudeSwap');
+    const expiryDays = config.get<number>('warnLoginExpiryDays') ?? 3;
+    const showPace = config.get<boolean>('showPaceWarnings') ?? true;
+
+    for (const account of payload.accounts) {
+      if (expiryDays > 0) {
+        this.checkLoginExpiry(account, expiryDays);
+      }
+      if (showPace) {
+        this.checkPace(account);
+      }
+    }
+  }
+
+  /**
+   * A stored login whose refresh token is about to expire will simply stop
+   * working, and the fix needs a browser (`/login`) — so it must be known about
+   * before the moment you need that account, not at the moment you switch to it.
+   */
+  private checkLoginExpiry(account: Account, withinDays: number): void {
+    if (!account.loginExpiresAt) {
+      return;
+    }
+    const days = daysUntil(account.loginExpiresAt);
+    if (days === undefined || days > withinDays) {
+      return;
+    }
+    const key = this.key('login-expiry', account);
+    if (this.alreadySaidToday(key)) {
+      return;
+    }
+
+    const when =
+      days < 0 ? 'has expired' : days < 1 ? 'expires in less than a day' : `expires in ${Math.floor(days)} days`;
+    log(`notice: account ${account.number} login ${when}`);
+    this.markSaid(key);
+
+    void vscode.window
+      .showWarningMessage(
+        `Claude Swap: account #${account.number} (${account.email}) ${when}. ` +
+          'Log into Claude Code with it, then re-add it to refresh the stored token.',
+        'How do I fix it?',
+        'Dismiss'
+      )
+      .then((choice) => {
+        if (choice === 'How do I fix it?') {
+          void vscode.window.showInformationMessage(
+            `In Claude Code run /login and sign in as ${account.email}, then in a terminal run: ` +
+              `cswap add --slot ${account.number}`,
+            { modal: true }
+          );
+        }
+      });
+  }
+
+  /**
+   * The weekly projection is a linear extrapolation, which is why the CLI keeps
+   * it out of its human output. As a once-a-day heads-up it is still worth
+   * having: it is the difference between finding out now and finding out on
+   * Friday afternoon.
+   */
+  private checkPace(account: Account): void {
+    const weekly = account.usage?.sevenDay;
+    if (!weekly || weekly.willLastToReset !== false || !weekly.aheadOfPace) {
+      return;
+    }
+    const key = this.key('pace', account);
+    if (this.alreadySaidToday(key)) {
+      return;
+    }
+    log(`notice: account ${account.number} projected to exhaust weekly quota early`);
+    this.markSaid(key);
+
+    const expected =
+      weekly.expectedPct !== undefined ? ` (even pace would be ~${Math.round(weekly.expectedPct)}%)` : '';
+    void vscode.window.showInformationMessage(
+      `Claude Swap: account #${account.number} has used ${Math.round(weekly.pct)}% of its weekly quota` +
+        `${expected} and is projected to run out before it resets` +
+        (weekly.countdown ? ` in ${weekly.countdown}` : '') +
+        '. Rough projection, not a certainty.'
+    );
+  }
+}

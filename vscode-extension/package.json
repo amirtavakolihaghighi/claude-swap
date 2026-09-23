@@ -1,0 +1,121 @@
+{
+  "name": "claude-swap-vscode",
+  "displayName": "Claude Swap",
+  "description": "Switch Claude Code accounts from the VS Code status bar, with live usage and optional background auto-switching.",
+  "version": "0.1.0",
+  "publisher": "amirtavakolihaghighi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amirtavakolihaghighi/claude-swap.git",
+    "directory": "vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "claude code",
+    "account switcher",
+    "usage",
+    "rate limit"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeSwap.switchAccount",
+        "title": "Claude Swap: Switch Account…"
+      },
+      {
+        "command": "claudeSwap.switchBest",
+        "title": "Claude Swap: Switch to Account With Most Quota"
+      },
+      {
+        "command": "claudeSwap.rescue",
+        "title": "Claude Swap: Rescue — Switch Account and Reload Window"
+      },
+      {
+        "command": "claudeSwap.refresh",
+        "title": "Claude Swap: Refresh Usage Now"
+      },
+      {
+        "command": "claudeSwap.toggleAutoSwitch",
+        "title": "Claude Swap: Toggle Background Auto-Switch"
+      },
+      {
+        "command": "claudeSwap.bindFolder",
+        "title": "Claude Swap: Bind This Folder to an Account"
+      },
+      {
+        "command": "claudeSwap.openDashboard",
+        "title": "Claude Swap: Open Full Dashboard in Terminal"
+      },
+      {
+        "command": "claudeSwap.showLogs",
+        "title": "Claude Swap: Show Logs"
+      }
+    ],
+    "configuration": {
+      "title": "Claude Swap",
+      "properties": {
+        "claudeSwap.executablePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Full path to the `cswap` executable. Leave empty to search your PATH and the usual install locations. Example: `D:\\\\Files\\\\Projects\\\\claude-swap\\\\.venv\\\\Scripts\\\\cswap.exe`"
+        },
+        "claudeSwap.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 15,
+          "markdownDescription": "How often to refresh the status bar. Note that claude-swap paces the real network calls itself, so a lower value here mostly just re-reads its cache — it does **not** get you fresher numbers, and values under 30 are discouraged."
+        },
+        "claudeSwap.autoSwitch.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Run a background auto-switch check, so you move off an account before it hits its limit without any terminal window open. Uses `cswap auto --once`, which reads claude-swap's own `autoswitch.*` settings — so the threshold and strategy stay in one place. Change them with `cswap config set autoswitch.threshold 80`."
+        },
+        "claudeSwap.autoSwitch.intervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 30,
+          "description": "How often the background auto-switch check runs."
+        },
+        "claudeSwap.autoSwitch.notify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification when the background auto-switch changes your account."
+        },
+        "claudeSwap.warnLoginExpiryDays": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "description": "Warn this many days before a stored account's login expires and needs a fresh /login. Set to 0 to disable."
+        },
+        "claudeSwap.showPaceWarnings": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Warn when an account is burning its weekly quota fast enough that it is projected to run out before the weekly reset. This is a rough linear projection, not a promise."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.4.0"
+  }
+}
