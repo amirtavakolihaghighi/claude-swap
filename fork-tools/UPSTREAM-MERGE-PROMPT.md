@@ -14,12 +14,23 @@ if they are safe, merge them.
 Background you need:
 
 - `upstream` = the original repo (realiti4/claude-swap). `origin` = my fork.
-- All of MY OWN work lives in exactly two top-level directories that upstream has
-  never used, plus one file:
+- Most of MY OWN work lives in two top-level directories that upstream has never
+  used, so they can never conflict:
     - `vscode-extension/`  — a VS Code extension I built (TypeScript)
     - `fork-tools/`        — this update-checking tooling
-    - `CLAUDE.md`          — repo guidance for Claude Code
-  Everything else in the repo is upstream's code, unmodified by me.
+- I have also ADDED these files at the root, which upstream does not have. If
+  upstream ever adds a file of the same name, mine and theirs both have a claim and
+  you must ask me rather than silently picking one:
+    - `CLAUDE.md`, `.gitattributes`, `.editorconfig`, `SECURITY.md`,
+      `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
+      `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/vscode-extension.yml`
+- I have MODIFIED exactly one upstream file: **`README.md`**, which now carries a
+  short "This is a fork" block after the opening paragraph, pointing at the
+  extension. If upstream changed its README, expect a conflict here: **keep my fork
+  block AND take upstream's changes**. Do not drop either.
+- `src/`, `tests/` and `pyproject.toml` are upstream's and must stay byte-identical.
+  Verify that with `git diff --stat <merge-base> HEAD -- src tests pyproject.toml`,
+  which should print nothing. If it prints something, stop and tell me.
 - The VS Code extension shells out to the `cswap` CLI and parses its `--json`
   output. It does NOT import any Python. Its only coupling to upstream is that
   JSON contract, which upstream documents as additive-only in
@@ -62,17 +73,24 @@ Please do this, in order:
 
 5. If it IS safe and I say go ahead, then:
    - Merge with `git merge upstream/main`.
-   - If there are conflicts, resolve them. Anything in `vscode-extension/`,
-     `fork-tools/` or `CLAUDE.md` is mine and wins unless upstream has a reason;
-     anything under `src/` or `tests/` is upstream's and wins.
+   - If there are conflicts, resolve them using the ownership rules above:
+     `vscode-extension/`, `fork-tools/` and my added root files are mine;
+     `src/`, `tests/` and `pyproject.toml` are upstream's; `README.md` keeps
+     both sides.
    - If the JSON contract changed in a way that affects the extension, update
-     `vscode-extension/src/types.ts` and whatever else needs it to match.
+     `vscode-extension/src/types.ts` and whatever else needs it to match. Any pure
+     logic belongs in `vscode-extension/src/analysis.ts`, which has tests.
    - If upstream changed behaviour worth documenting, update `CLAUDE.md`.
 
 6. Verify before you tell me it worked — do not skip this:
-   - `.venv\Scripts\python -m pytest`  (the upstream Python test suite)
-   - `cd vscode-extension; npm run compile`  (the extension must still build)
-   Report the actual results. If something fails, say so and show the output.
+   - `.venv\Scripts\python -m pytest` (the upstream Python test suite). Note that
+     `uv` is NOT installed on this machine. The expected baseline on this Windows
+     box is **2186 passed, 4 failed, 81 skipped** — the 4 failures are symlink tests
+     that Windows blocks without Developer Mode and are NOT caused by any change.
+     Treat only NEW failures as real.
+   - `cd vscode-extension; npm test` (compiles the extension AND runs its 37
+     analysis tests).
+   Report the actual numbers. If something fails, say so and show the output.
 
 7. If everything passes, commit the merge and push to `origin`. Then tell me
    whether I need to rebuild and reinstall the extension — and if so, give me
@@ -94,9 +112,13 @@ Manually, whenever you feel like it:
 Automatically, once a day, with no window popping up — create a Windows
 Scheduled Task:
 
+Run this from the repository root — `$PWD` fills in the path, so there is nothing
+to edit by hand:
+
 ```powershell
+$script = Join-Path $PWD 'fork-tools\check-upstream.ps1'
 $action = New-ScheduledTaskAction -Execute "powershell.exe" `
-  -Argument '-NoProfile -WindowStyle Hidden -File "D:\Files\Projects\claude-swap\fork-tools\check-upstream.ps1" -Quiet'
+  -Argument "-NoProfile -WindowStyle Hidden -File `"$script`" -Quiet"
 $trigger = New-ScheduledTaskTrigger -Daily -At 10am
 Register-ScheduledTask -TaskName "claude-swap upstream check" `
   -Action $action -Trigger $trigger -Description "Check for claude-swap updates"

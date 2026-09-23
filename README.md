@@ -2,6 +2,22 @@
 
 Multi-account switcher for Claude Code. Easily switch between multiple Claude accounts without logging out, or let it switch for you before you hit a rate limit. Track usage for every account in a live dashboard, and run accounts in parallel. Works with both the Claude Code CLI and the VS Code extension.
 
+---
+
+> **This is a fork**
+>
+> A fork of [realiti4/claude-swap](https://github.com/realiti4/claude-swap) that adds
+> **[a VS Code extension](vscode-extension/)** — switch accounts and watch your usage
+> from the status bar and a sidebar panel, with optional background auto-switching so
+> no terminal window has to stay open.
+>
+> Everything below is upstream's documentation for the CLI, kept unmodified.
+> **Core bug reports and features belong [upstream](https://github.com/realiti4/claude-swap/issues)**,
+> not here — this fork keeps `src/` byte-identical so upstream merges stay trivial.
+> See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
 ## Installation
 
 ### Using uv (recommended)

@@ -1,0 +1,85 @@
+# CI for the VS Code extension (vscode-extension/).
+#
+# Separate from upstream's ci.yml on purpose: that file is upstream's and is kept
+# unmodified so merging upstream never conflicts. This workflow is only triggered
+# by changes under vscode-extension/, so it does not run on every core merge.
+name: VS Code extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vscode-extension/**'
+      - '.github/workflows/vscode-extension.yml'
+  pull_request:
+    paths:
+      - 'vscode-extension/**'
+      - '.github/workflows/vscode-extension.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: vscode-extension
+
+jobs:
+  build:
+    # The extension's README claims Windows, macOS and Linux. The guideline this
+    # repository follows is that a claim in the README must be proven by CI, so all
+    # three run even though TypeScript compilation is largely platform-independent:
+    # the parts that are not are exactly the parts that break (path handling, the
+    # `where` vs `which` lookup, and line endings in the PowerShell tooling).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # 20 is the oldest Node still supported by current VS Code; 24 is what the
+        # developer machine runs. A test suite that uses node:test must work on both.
+        node: ['20', '24']
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      # `npm ci` rather than `npm install`: it installs exactly what the lockfile
+      # records and fails if the lockfile is out of step with package.json, which
+      # is what makes this a real check rather than a fresh resolution each run.
+      - name: Install from the lockfile
+        run: npm ci
+
+      - name: Compile and run tests
+        run: npm test
+
+  package:
+    # A successful compile does not prove the extension can be packaged: vsce also
+    # validates the manifest, which is where a bad contribution point or a missing
+    # icon shows up.
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - run: npm ci
+
+      - name: Package the extension
+        run: npm run package
+
+      - name: Upload the .vsix
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-swap-vscode-vsix
+          path: vscode-extension/*.vsix
+          if-no-files-found: error

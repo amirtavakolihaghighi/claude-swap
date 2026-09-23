@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## This is a fork — read this first
+
+This repo is a **fork** of [realiti4/claude-swap](https://github.com/realiti4/claude-swap). `src/`, `tests/` and `pyproject.toml` are upstream's and are kept **byte-identical**, so that merging upstream is a non-event. Everything added in the fork lives in paths upstream has never used:
+
+- **[vscode-extension/](vscode-extension/)** — a TypeScript VS Code extension (status bar usage, sidebar panel, click-to-switch, background auto-switch, burn-rate estimates). It shells out to `cswap --json` and imports no Python. Its *only* coupling to the core is the JSON contract in [json_output.py](src/claude_swap/json_output.py) — so a change there is the one thing that can break it.
+- **[fork-tools/](fork-tools/)** — `check-upstream.ps1` (exit 10 = updates available) and `UPSTREAM-MERGE-PROMPT.md`, the merge workflow. **Read that prompt before merging upstream**; it records which files are intentionally modified.
+- Added root files: `.gitattributes`, `.editorconfig`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/vscode-extension.yml`.
+- `README.md` is the **one modified upstream file** (a "this is a fork" block after the intro). Expect a conflict there on upstream README changes; keep both sides.
+
+Extension work: `cd vscode-extension && npm test` (compiles + runs 37 tests). Pure logic goes in `src/analysis.ts`, which has no `vscode` import specifically so it is testable with `node --test`.
+
+**On this machine:** `uv` is not installed, and `cswap` exists only in this repo's `.venv`. The Python baseline here is **2186 passed, 4 failed, 81 skipped** — the 4 are symlink tests Windows blocks without Developer Mode. Treat only new failures as real.
+
 ## Commands
 
 The canonical toolchain is `uv` (the lockfile is committed and CI runs `uv sync --locked`). `uv` is not on PATH on every dev box — the repo's `.venv/` works identically:

@@ -1,0 +1,45 @@
+# Line endings are normalised here rather than left to each machine's
+# core.autocrlf, which is a per-developer setting and therefore not a guarantee.
+# Without this, a script committed from Windows can arrive on Linux with CRLF
+# endings and fail with "bad interpreter: No such file or directory".
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF: it is the native convention for the shells
+# that run them, and they are never executed on Linux or macOS.
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Explicit text types, so nothing depends on content sniffing.
+*.py    text
+*.ts    text
+*.js    text
+*.json  text
+*.jsonc text
+*.md    text
+*.toml  text
+*.yml   text
+*.yaml  text
+*.tcss  text
+*.svg   text
+*.lock  text
+*.cfg   text
+*.txt   text
+
+# Binary files must never be line-ending converted, which would corrupt them.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.vsix binary
+*.ttf  binary
+*.woff binary
+*.woff2 binary
+
+# Generated/vendored files: keep them out of diffs and language statistics.
+uv.lock                           linguist-generated=true
+vscode-extension/package-lock.json linguist-generated=true
