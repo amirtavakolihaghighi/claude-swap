@@ -10,7 +10,7 @@ This file covers **the extension only**. The core `cswap` CLI is maintained
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-23
+## [0.1.0] - 2026-09-25
 
 First working version.
 
