@@ -10,10 +10,12 @@ on:
     branches: [main]
     paths:
       - 'vscode-extension/**'
+      - 'fork-tools/verification/**'
       - '.github/workflows/vscode-extension.yml'
   pull_request:
     paths:
       - 'vscode-extension/**'
+      - 'fork-tools/verification/**'
       - '.github/workflows/vscode-extension.yml'
   workflow_dispatch:
 
@@ -55,6 +57,42 @@ jobs:
 
       - name: Compile and run tests
         run: npm test
+
+  verification:
+    # The checks in fork-tools/verification/ that a unit test cannot express, because
+    # they need separate OS processes and a genuine race. The leader-election one
+    # caught a real bug (3 leaders out of 8) that no single-process test would notice,
+    # and a refactor could reintroduce it — so it runs on every change, on every OS.
+    #
+    # Running the matrix also widens the evidence: the leader lease and its
+    # openSync(..., 'wx') mutex were originally measured on Windows only.
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run compile
+
+      - name: One window claims the auto-switch timer, under a real race
+        working-directory: .
+        run: node fork-tools/verification/leader-election.js
+
+      - name: A per-model limit reaches every surface
+        working-directory: .
+        run: node fork-tools/verification/per-model-rendering.js
 
   package:
     # A successful compile does not prove the extension can be packaged: vsce also
