@@ -15,6 +15,7 @@
 
 import * as vscode from 'vscode';
 import * as cswap from './cswap';
+import { LeaderLease } from './leader';
 import { log, logError } from './log';
 import { AutoEvent, AutoOnceCode } from './types';
 
@@ -30,10 +31,18 @@ export class AutoSwitcher {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
 
-  constructor(private readonly onSwitched: () => void) {}
+  constructor(
+    private readonly onSwitched: () => void,
+    /**
+     * Only the window holding the lease ticks. Without it, N open windows spawn N
+     * `cswap auto --once` processes on the same schedule — see `shouldClaimLease`.
+     */
+    private readonly lease: LeaderLease
+  ) {}
 
   dispose(): void {
     this.stop();
+    this.lease.release();
   }
 
   get enabled(): boolean {
@@ -68,6 +77,7 @@ export class AutoSwitcher {
       clearInterval(this.timer);
       this.timer = undefined;
       log('auto-switch: disabled');
+      this.lease.release();
     }
   }
 
@@ -75,6 +85,11 @@ export class AutoSwitcher {
   async tick(): Promise<void> {
     if (this.running) {
       log('auto-switch: previous check still running, skipping this tick');
+      return;
+    }
+    // Another window owns the timer. Standing down is not a failure: that window
+    // is switching for the whole machine, and the account is shared.
+    if (!this.lease.acquire()) {
       return;
     }
     this.running = true;

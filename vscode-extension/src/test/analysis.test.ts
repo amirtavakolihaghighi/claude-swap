@@ -13,6 +13,7 @@ import { describe, it } from 'node:test';
 
 import {
   BurnRate,
+  LEASE_STALE_MS,
   UsageSample,
   bindingWindow,
   computeBurnRate,
@@ -22,6 +23,7 @@ import {
   hasHeadroom,
   hiddenModelConstraint,
   recordSample,
+  leaseVerdict,
   worstScopedWindow,
 } from '../analysis';
 import { Account, Usage } from '../types';
@@ -346,5 +348,98 @@ describe('formatMinutes', () => {
   it('does not produce nonsense for a non-finite input', () => {
     assert.equal(formatMinutes(Number.POSITIVE_INFINITY), 'less than a minute');
     assert.equal(formatMinutes(Number.NaN), 'less than a minute');
+  });
+});
+
+describe('hiddenModelConstraint with the real-world shape', () => {
+  // These numbers are upstream's own test fixture (tests/test_oauth.py,
+  // "weekly_scoped entries in limits[] surface as result['scoped'] by model name"),
+  // which encodes a live API response: the account's weekly window at 72% while the
+  // per-model Fable window is at 100%. That gap is the entire reason this warning
+  // exists, so the test uses the observed numbers rather than invented ones.
+  const liveShape: Usage = {
+    fiveHour: { pct: 7 },
+    sevenDay: { pct: 72 },
+    scoped: [{ pct: 100, name: 'Fable', resetsAt: '2026-03-23T15:00:00+00:00', countdown: '3h 0m' }],
+  };
+
+  it('flags the Fable window that is 28 points past the account window', () => {
+    const hidden = hiddenModelConstraint(liveShape);
+    assert.equal(hidden?.name, 'Fable');
+    assert.equal(hidden?.pct, 100);
+  });
+
+  it('still reports the account window as binding, because switching ignores models', () => {
+    // The status bar and the switching policy must not disagree: auto-switch only
+    // acts on 5h/7d unless autoswitch.model names a model.
+    const binding = bindingWindow(liveShape);
+    assert.equal(binding?.label, '7d');
+    assert.equal(binding?.window.pct, 72);
+  });
+
+  it('keeps the model window out of headroom, so it cannot silently block a switch', () => {
+    // At 72% weekly with a 90% threshold the account is still a valid target even
+    // though its Fable quota is spent. That is claude-swap's behaviour, and the
+    // extension must reflect it rather than invent a stricter rule.
+    assert.equal(hasHeadroom(account({ usage: liveShape }), 90), true);
+  });
+
+  it('carries the model name through, since the fix instruction needs it', () => {
+    // The notification tells the user to run
+    // `cswap config set autoswitch.model <name>`, which is useless without the name.
+    assert.equal(worstScopedWindow(liveShape)?.name, 'Fable');
+  });
+});
+
+describe('leaseVerdict', () => {
+  const PID = 4242;
+  const STALE = LEASE_STALE_MS;
+
+  it('claims the timer when no lease file exists', () => {
+    assert.equal(leaseVerdict({ exists: false }, PID), 'claim');
+  });
+
+  it('refreshes a lease that is already ours', () => {
+    assert.equal(leaseVerdict({ exists: true, ageMs: 1000, holderPid: PID }, PID), 'refresh');
+  });
+
+  it('stands down for another window holding a fresh lease', () => {
+    assert.equal(leaseVerdict({ exists: true, ageMs: 1000, holderPid: 999 }, PID), 'stand-down');
+  });
+
+  it('takes over a lease abandoned by a closed or crashed window', () => {
+    assert.equal(
+      leaseVerdict({ exists: true, ageMs: STALE + 1, holderPid: 999 }, PID),
+      'take-over'
+    );
+  });
+
+  it('RESPECTS a just-created lease whose body has not been written yet', () => {
+    // The regression test for a measured bug. An earlier version decided staleness
+    // from the JSON body and read an unreadable body as abandoned. Between one
+    // process creating the file and writing into it, the others saw it EMPTY,
+    // deleted it and created their own - electing 3 leaders out of 8 racing
+    // processes. A fresh mtime with no readable holder must mean "held".
+    assert.equal(leaseVerdict({ exists: true, ageMs: 5, holderPid: undefined }, PID), 'stand-down');
+  });
+
+  it('still reclaims an OLD lease whose body is unreadable', () => {
+    // The other half: an empty file left behind by a crash must not wedge the timer
+    // forever just because its pid cannot be read.
+    assert.equal(
+      leaseVerdict({ exists: true, ageMs: STALE + 1, holderPid: undefined }, PID),
+      'take-over'
+    );
+  });
+
+  it('treats a file stamped in the future as held, not stale', () => {
+    // Clock skew or a restored snapshot must never hand the timer to two windows;
+    // a delayed tick is the cheaper failure.
+    assert.equal(leaseVerdict({ exists: true, ageMs: -60_000, holderPid: 999 }, PID), 'stand-down');
+  });
+
+  it('stands down when the age cannot be established at all', () => {
+    assert.equal(leaseVerdict({ exists: true, holderPid: 999 }, PID), 'stand-down');
+    assert.equal(leaseVerdict({ exists: true, ageMs: Number.NaN, holderPid: 999 }, PID), 'stand-down');
   });
 });

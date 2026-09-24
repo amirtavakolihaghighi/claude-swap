@@ -275,6 +275,82 @@ export function accountKey(account: Account): string {
   return `${account.email}|${account.organizationUuid ?? ''}`;
 }
 
+// ---------------------------------------------------------------------------
+// Leader election between VS Code windows
+// ---------------------------------------------------------------------------
+
+/**
+ * A claim on being the one window that runs the background auto-switch timer.
+ *
+ * Every open VS Code window loads its own copy of this extension, so without a
+ * leader N windows spawn N `cswap auto --once` processes on the same schedule.
+ * claude-swap serialises them correctly — its under-lock cooldown re-check makes
+ * the loser back off, and FileLock was measured to exclude across processes on
+ * Windows (5 processes, strictly serialised, 2026-09-24) — but two cases
+ * deliberately bypass that cooldown: `at-limit` and `failover`, because an account
+ * already at its limit must move regardless of how recently anything moved. Two
+ * windows ranking candidates differently could then each switch once, which is not
+ * a ping-pong (the no-return filter blocks the return leg) but is a wasted hop and
+ * an extra prompt-cache rebuild.
+ *
+ * Electing a leader removes the whole class rather than re-implementing the
+ * cooldown here, which would duplicate policy that must stay in one place.
+ */
+export interface Lease {
+  pid: number;
+  ts: number;
+}
+
+/** A lease older than this is treated as abandoned (window closed, crash, sleep). */
+export const LEASE_STALE_MS = 4 * 60 * 1000;
+
+export interface LeaseState {
+  /** Whether the lease file exists at all. */
+  exists: boolean;
+  /** Age from the file's mtime, in ms. Undefined when it does not exist. */
+  ageMs?: number;
+  /** Holder pid from the file's contents; undefined when unreadable or empty. */
+  holderPid?: number;
+}
+
+/**
+ * What this process should do about the timer.
+ *
+ * - `claim` — nothing holds it; create the lease.
+ * - `refresh` — already ours; update the timestamp and keep ticking.
+ * - `take-over` — the holder abandoned it; remove and re-create.
+ * - `stand-down` — another live window has it.
+ *
+ * **Staleness must come from the file's mtime, never from its contents.** Measured
+ * failure (2026-09-24, 8 racing processes): an earlier version decided staleness
+ * from the JSON body and treated an unreadable body as abandoned. Between one
+ * process creating the file and writing into it, the others read it as EMPTY,
+ * concluded it was abandoned, DELETED it and re-created their own — electing 3
+ * leaders out of 8. The mtime is set atomically by the filesystem at creation, so a
+ * just-created empty file reads as fresh and is correctly respected.
+ *
+ * A negative age (a file stamped in the future, from clock skew or a restored
+ * snapshot) counts as fresh, not stale: handing the timer to two windows is worse
+ * than delaying a tick.
+ */
+export function leaseVerdict(
+  state: LeaseState,
+  myPid: number,
+  staleAfterMs = LEASE_STALE_MS
+): 'claim' | 'refresh' | 'take-over' | 'stand-down' {
+  if (!state.exists) {
+    return 'claim';
+  }
+  if (state.holderPid === myPid) {
+    return 'refresh';
+  }
+  const age = state.ageMs;
+  if (typeof age !== 'number' || Number.isNaN(age)) {
+    return 'stand-down'; // cannot establish an age: assume someone holds it
+  }
+  return age > staleAfterMs ? 'take-over' : 'stand-down';
+}
+
 /** "2h 40m", "45m", "less than a minute" — for durations we compute ourselves. */
 export function formatMinutes(minutes: number): string {
   if (!Number.isFinite(minutes) || minutes < 1) {

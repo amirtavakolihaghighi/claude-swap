@@ -4,6 +4,7 @@ import { AutoSwitcher } from './autoSwitch';
 import * as cswap from './cswap';
 import { CswapError, CswapNotFoundError } from './cswap';
 import { UsageHistory } from './history';
+import { LeaderLease } from './leader';
 import { initLog, log, logError, showLog } from './log';
 import { Notices } from './notices';
 import { StatusBar, describeBurnRate, effectiveUsage } from './statusBar';
@@ -31,7 +32,7 @@ export function activate(context: vscode.ExtensionContext): void {
   notices = new Notices(context);
   history = new UsageHistory(context);
   tree = new AccountsTreeProvider();
-  autoSwitcher = new AutoSwitcher(() => void refresh());
+  autoSwitcher = new AutoSwitcher(() => void refresh(), new LeaderLease(context));
 
   context.subscriptions.push(
     statusBar,

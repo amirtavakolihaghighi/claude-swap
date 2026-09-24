@@ -49,6 +49,14 @@ First working version.
   before that quota resets.
 - **Bind this folder to an account**, wrapping `cswap map`.
 - Commands to open the full terminal dashboard, show logs, and clear usage history.
+- **One window runs the auto-switch timer.** Every open VS Code window loads its own
+  copy of this extension, so N windows would otherwise spawn N `cswap auto --once`
+  processes on the same schedule. A lease file in global storage elects a single
+  leader; the rest stand down, and an abandoned lease is taken over after four
+  minutes. claude-swap's own locking remains the correctness boundary; this removes
+  the redundant work and the narrow case that its cooldown deliberately bypasses
+  (`at-limit` and `failover`, where an account already at its limit must move
+  regardless of how recently anything moved).
 
 ### Security
 
@@ -64,8 +72,15 @@ First working version.
   extension is a front-end and duplicates none of its account, credential or
   rate-limit logic.
 - Zero runtime dependencies.
-- The per-model warning's logic is covered by unit tests, but has not yet been
-  observed against a live account that reports per-model windows.
+- The per-model warning was verified end to end (status bar, tooltip, sidebar and
+  notification) against a payload whose shape is taken from upstream's own API test
+  fixture: account weekly at 72% with the per-model Fable window at 100%. It has
+  still not been seen against a live account that reports per-model windows, because
+  neither account on the development machine does.
+- Cross-process claims were measured rather than assumed, on Windows, 2026-09-24:
+  claude-swap's `FileLock` strictly serialised 5 competing processes with no
+  interleaving, and the leader lease elected exactly 1 leader from 8 simultaneous
+  processes across 5 consecutive runs.
 
 [Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.1.0...HEAD
 [0.1.0]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.0
