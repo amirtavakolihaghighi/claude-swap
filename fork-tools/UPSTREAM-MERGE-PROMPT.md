@@ -84,12 +84,17 @@ Please do this, in order:
 
 6. Verify before you tell me it worked — do not skip this:
    - `.venv\Scripts\python -m pytest` (the upstream Python test suite). Note that
-     `uv` is NOT installed on this machine. The expected baseline on this Windows
-     box is **2186 passed, 4 failed, 81 skipped** — the 4 failures are symlink tests
-     that Windows blocks without Developer Mode and are NOT caused by any change.
-     Treat only NEW failures as real.
-   - `cd vscode-extension; npm test` (compiles the extension AND runs its 37
+     `uv` is NOT installed on this machine. The last measured baseline on this
+     Windows box is **2790 passed, 10 failed, 118 skipped** (2026-11-02, upstream
+     v0.29.0) — the 10 failures are symlink tests that Windows blocks without
+     Developer Mode and are NOT caused by any change. Upstream adds symlink tests
+     over time, so a higher count is not by itself a regression: a failure counts
+     as environmental only if its traceback ends in `WinError 1314` at
+     `symlink_to`. Treat every other NEW failure as real.
+   - `cd vscode-extension; npm test` (compiles the extension AND runs its 52
      analysis tests).
+   - The three checks in `fork-tools/verification/` (see its README for how to
+     run them), and update the "Measured" lines there with the new results.
    Report the actual numbers. If something fails, say so and show the output.
 
 7. If everything passes, commit the merge and push to `origin`. Then tell me

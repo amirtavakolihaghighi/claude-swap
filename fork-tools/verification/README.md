@@ -54,7 +54,8 @@ followed by its own `end`. Elapsed time is also compared against the serial floo
 run that avoided interleaving by racing through still fails.
 
 *Measured 2026-09-24, Windows 10, Python 3.14: strictly serialised, zero interleaving,
-2.15s against a 1.75s floor.*
+2.15s against a 1.75s floor. Re-run 2026-11-02 after merging upstream v0.29.0, Python
+3.14.7: the same, 2.13s against 1.75s.*
 
 ### `leader-election.js`
 
@@ -76,7 +77,7 @@ creation. Keep this script: a refactor could reintroduce exactly that hole, and 
 in a single-process test would notice.
 
 *Measured 2026-09-24, Windows 10, Node 24: 1 leader from 8 simultaneous processes, 5
-consecutive runs.*
+consecutive runs. Re-run 2026-11-02, Node 24.19.0: 1 leader from 8, 2 consecutive runs.*
 
 ### `per-model-rendering.js`
 
@@ -93,6 +94,6 @@ must still report the **account** window as binding, because claude-swap's auto-
 ignores per-model windows unless `autoswitch.model` names one. The display must never
 imply a decision the switching policy will not make.
 
-*Measured 2026-09-24: 10/10 assertions pass. Still unconfirmed against a live account
-that reports per-model windows, because neither account on the development machine
-does.*
+*Measured 2026-09-24: 10/10 assertions pass. Re-run 2026-11-02: 10/10. Still
+unconfirmed against a live account that reports per-model windows, because neither
+account on the development machine does (re-checked 2026-11-02).*

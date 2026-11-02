@@ -12,9 +12,11 @@ This repo is a **fork** of [realiti4/claude-swap](https://github.com/realiti4/cl
 - Added root files: `.gitattributes`, `.editorconfig`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/vscode-extension.yml`.
 - `README.md` is the **one modified upstream file** (a "this is a fork" block after the intro). Expect a conflict there on upstream README changes; keep both sides.
 
-Extension work: `cd vscode-extension && npm test` (compiles + runs 37 tests). Pure logic goes in `src/analysis.ts`, which has no `vscode` import specifically so it is testable with `node --test`.
+Extension work: `cd vscode-extension && npm test` (compiles + runs 52 tests). Pure logic goes in `src/analysis.ts`, which has no `vscode` import specifically so it is testable with `node --test`.
 
-**On this machine:** `uv` is not installed, and `cswap` exists only in this repo's `.venv`. The Python baseline here is **2186 passed, 4 failed, 81 skipped** — the 4 are symlink tests Windows blocks without Developer Mode. Treat only new failures as real.
+**On this machine:** `uv` is not installed, and `cswap` exists only in this repo's `.venv`. The Python baseline here is **2790 passed, 10 failed, 118 skipped** (2026-11-02, upstream v0.29.0) — all 10 are symlink tests whose *setup* raises `WinError 1314` at `Path.symlink_to`, because Windows blocks symlink creation without Developer Mode. Treat only new failures as real, and check a new one's traceback for `WinError 1314` before blaming a change: upstream's symlink tests grow with its releases (4 → 10 across 0.27–0.29).
+
+The `.venv` install is editable, so a merge takes effect at once, but `cswap --version` keeps reporting the old version until its metadata is rebuilt. Without `uv`, the global Python's pip can do it: `& "$env:LOCALAPPDATA\Programs\Python\Python314\python.exe" -m pip --python .venv\Scripts\python.exe install --no-deps -e .`
 
 ## Commands
 
@@ -70,6 +72,7 @@ oauth ───┼──> credentials  (storage: Keychain-vs-file routing; NEVER
 - **`CredentialStore`** ([credentials.py](src/claude_swap/credentials.py)) — owns *where* credentials live. Active credential: macOS Keychain, else `~/.claude/.credentials.json`. Per-slot backups: macOS Keychain while usable, otherwise base64 `.enc` files under `credentials/`; Windows/Linux always files (#45: Credential Manager rejects entries >~2500 bytes). Backup **reads are `.enc`-wins on every platform** so a recovered Keychain can't shadow a newer fallback file.
 - **`UsageStore`** ([usage_store.py](src/claude_swap/usage_store.py)) — per-account last-known-good usage plus fetch/backoff/claim state at `cache/usage.json` (`schemaVersion: 2`). Stale-on-error: a failed fetch updates error/backoff fields and never touches `lastGood`. Sentinel states (`"api key"`, `"token expired"`, …) are derived per pass and **never persisted**.
 - **`poll_policy`** ([poll_policy.py](src/claude_swap/poll_policy.py)) — every cadence constant for `/api/oauth/usage`, with the measurements they were derived from. The endpoint's limit is a ~60-minute trailing window of ~28–30 requests per identity, *not* a refilling bucket. Target is ≤~1 request / 3 min. Don't tune these from intuition.
+- **`lines`** ([lines.py](src/claude_swap/lines.py), upstream 0.28.0) — a switch line per usage window: `autoswitch.threshold` for the 5-hour window, optional `autoswitch.weeklyThreshold` for the weekly and per-model ones, and per-account overrides (`cswap threshold N P`). The engine judges each window against its own line. The extension's status bar still shows only `autoswitch.threshold`, which is exact until someone sets the other two.
 - **`AutoSwitchEngine`** ([autoswitch.py](src/claude_swap/autoswitch.py)) — UI-agnostic: no printing, no argparse, no TUI imports. Reports typed events via an `on_event` callback; the CLI renders them as human lines or JSONL, and the TUI and menu bar consume the same stream. Cooldown + quarantine persist in `autoswitch_state.json`.
 - **`SnapshotSource`** ([snapshot_source.py](src/claude_swap/snapshot_source.py)) — the supported read path for dashboards. Pacing is *store*-governed, so a TUI repainting every few seconds and a one-shot `cswap list` make identical network calls. `take()` blocks; call it from a thread.
 
