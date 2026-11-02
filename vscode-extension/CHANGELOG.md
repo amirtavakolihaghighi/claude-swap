@@ -10,6 +10,26 @@ This file covers **the extension only**. The core `cswap` CLI is maintained
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-02
+
+### Changed
+
+- **Clearer message after a switch.** On Windows and Linux the popup now says the
+  new account is already active — "your next message in any Claude tab uses it" —
+  and no longer offers a *Reload window* button. The button made the switch look
+  unfinished (a user asked whether it was active at all), yet it never did anything
+  there: Claude Code re-reads a file-based login when the file changes, so every
+  open tab is on the new account from its next message. macOS keeps the button,
+  because Claude Code caches the Keychain for about 30 seconds. The background
+  auto-switch notification follows the same rule.
+
+### Notes
+
+- Checked against claude-swap 0.29.0, merged from upstream the same day: the
+  `--json` output this extension reads only gained an optional per-account
+  `threshold` field, the commands it runs are unchanged, and so are the
+  `auto --once` exit codes.
+
 ## [0.1.0] - 2026-09-25
 
 First working version.
@@ -82,5 +102,6 @@ First working version.
   interleaving, and the leader lease elected exactly 1 leader from 8 simultaneous
   processes across 5 consecutive runs.
 
-[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.1.0...HEAD
+[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.1.1...HEAD
+[0.1.1]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.1
 [0.1.0]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.0

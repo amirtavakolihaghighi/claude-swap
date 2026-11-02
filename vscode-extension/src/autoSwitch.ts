@@ -14,6 +14,7 @@
  */
 
 import * as vscode from 'vscode';
+import { afterSwitchNotice } from './analysis';
 import * as cswap from './cswap';
 import { LeaderLease } from './leader';
 import { log, logError } from './log';
@@ -121,17 +122,17 @@ export class AutoSwitcher {
     if (switched && notify) {
       const to = switched.to;
       const label = to ? `#${to.number} (${to.email})` : 'another account';
-      void vscode.window
-        .showInformationMessage(
-          `Claude Swap switched you to account ${label} before you hit the limit.`,
-          'Reload window to apply now',
-          'OK'
-        )
-        .then((choice) => {
-          if (choice === 'Reload window to apply now') {
-            void vscode.commands.executeCommand('workbench.action.reloadWindow');
-          }
-        });
+      const notice = afterSwitchNotice(process.platform);
+      const text = `Claude Swap switched you to account ${label} before you hit the limit. ${notice.note}`;
+      if (!notice.offerReload) {
+        void vscode.window.showInformationMessage(text);
+        return;
+      }
+      void vscode.window.showInformationMessage(text, 'Reload window').then((choice) => {
+        if (choice === 'Reload window') {
+          void vscode.commands.executeCommand('workbench.action.reloadWindow');
+        }
+      });
       return;
     }
 

@@ -15,6 +15,7 @@ import {
   BurnRate,
   LEASE_STALE_MS,
   UsageSample,
+  afterSwitchNotice,
   bindingWindow,
   computeBurnRate,
   earliestFiveHourReset,
@@ -441,5 +442,27 @@ describe('leaseVerdict', () => {
   it('stands down when the age cannot be established at all', () => {
     assert.equal(leaseVerdict({ exists: true, holderPid: 999 }, PID), 'stand-down');
     assert.equal(leaseVerdict({ exists: true, ageMs: Number.NaN, holderPid: 999 }, PID), 'stand-down');
+  });
+});
+
+describe('afterSwitchNotice', () => {
+  it('offers no reload on Windows or Linux, where the next message already uses the new login', () => {
+    for (const platform of ['win32', 'linux']) {
+      const notice = afterSwitchNotice(platform);
+      assert.equal(notice.offerReload, false, platform);
+      assert.match(notice.note, /next message/, platform);
+    }
+  });
+
+  it('never mentions reloading where a reload would change nothing', () => {
+    // The old wording, "Active on your next message — reload to apply to an open
+    // Claude tab now", left a user unsure whether the switch had worked at all.
+    assert.doesNotMatch(afterSwitchNotice('win32').note, /reload/i);
+  });
+
+  it('offers a reload on macOS, where Claude Code caches the Keychain for about 30 seconds', () => {
+    const notice = afterSwitchNotice('darwin');
+    assert.equal(notice.offerReload, true);
+    assert.match(notice.note, /30 seconds/);
   });
 });

@@ -351,6 +351,39 @@ export function leaseVerdict(
   return age > staleAfterMs ? 'take-over' : 'stand-down';
 }
 
+// ---------------------------------------------------------------------------
+// What to say after a switch
+// ---------------------------------------------------------------------------
+
+/**
+ * The sentence shown after a switch, and whether a "Reload window" button would
+ * change anything for the user.
+ *
+ * On Windows and Linux the active login is a file, and Claude Code drops its cached
+ * token as soon as that file changes, so every open Claude tab is on the new account
+ * from its next message — claude-swap's own follow-up for this case reads "no restart
+ * needed" (`_print_switch_followup` in switcher.py). The popup used to offer "Reload
+ * window" there anyway, and that left a user asking whether the switch was active at
+ * all (2026-11-02). So the button is offered only where it does something.
+ *
+ * On macOS the login lives in the Keychain, which Claude Code caches for about 30
+ * seconds, so a reload is the one way to apply it at once. cswap falls back to the
+ * file when the Keychain is unusable, but the switch payload does not say which
+ * happened, and an unneeded offer there costs less than a missing one.
+ */
+export function afterSwitchNotice(platform: string): { note: string; offerReload: boolean } {
+  if (platform === 'darwin') {
+    return {
+      note: 'Open Claude tabs pick it up within about 30 seconds — reload the window to use it right away.',
+      offerReload: true,
+    };
+  }
+  return {
+    note: "It's active now — your next message in any Claude tab uses it.",
+    offerReload: false,
+  };
+}
+
 /** "2h 40m", "45m", "less than a minute" — for durations we compute ourselves. */
 export function formatMinutes(minutes: number): string {
   if (!Number.isFinite(minutes) || minutes < 1) {

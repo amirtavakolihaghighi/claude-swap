@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BurnRate } from './analysis';
+import { BurnRate, afterSwitchNotice } from './analysis';
 import { AutoSwitcher } from './autoSwitch';
 import * as cswap from './cswap';
 import { CswapError, CswapNotFoundError } from './cswap';
@@ -279,14 +279,14 @@ async function performSwitch(target: string | undefined): Promise<void> {
       return;
     }
 
-    // On Windows and Linux the credential is a file and Claude Code re-reads it,
-    // so the new account is live on the next message with no restart. Reloading
-    // is only for applying it to an already-open Claude tab immediately.
-    const choice = await vscode.window.showInformationMessage(
-      `${result.message}. Active on your next message — reload to apply to an open Claude tab now.`,
-      'Reload window',
-      'OK'
-    );
+    // Reload is offered only where it changes something (macOS); see afterSwitchNotice.
+    const notice = afterSwitchNotice(process.platform);
+    const text = `${result.message}. ${notice.note}`;
+    if (!notice.offerReload) {
+      void vscode.window.showInformationMessage(text);
+      return;
+    }
+    const choice = await vscode.window.showInformationMessage(text, 'Reload window');
     if (choice === 'Reload window') {
       await vscode.commands.executeCommand('workbench.action.reloadWindow');
     }
