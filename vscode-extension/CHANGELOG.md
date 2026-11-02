@@ -10,6 +10,18 @@ This file covers **the extension only**. The core `cswap` CLI is maintained
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-02
+
+### Fixed
+
+- The background work separate folder logins start with the extension (the launcher
+  check, keeping login folders in step, and updating which buttons show) now logs a
+  failure instead of leaving it unhandled.
+- The per-model verification check (`fork-tools/verification/per-model-rendering.js`)
+  failed on every CI runner with 0.2.0. Its stub VS Code lacked the APIs the Windows
+  view uses at activation. It now has them, and it no longer writes into the real
+  data root.
+
 ## [0.2.0] - 2026-11-02
 
 ### Added
@@ -209,7 +221,8 @@ First working version.
   interleaving, and the leader lease elected exactly 1 leader from 8 simultaneous
   processes across 5 consecutive runs.
 
-[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.2.0...HEAD
+[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.2.1...HEAD
+[0.2.1]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.2.1
 [0.2.0]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.2.0
 [0.1.3]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.3
 [0.1.2]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.2

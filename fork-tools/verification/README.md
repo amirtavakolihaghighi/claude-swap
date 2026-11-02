@@ -97,3 +97,11 @@ imply a decision the switching policy will not make.
 *Measured 2026-09-24: 10/10 assertions pass. Re-run 2026-11-02: 10/10. Still
 unconfirmed against a live account that reports per-model windows, because neither
 account on the development machine does (re-checked 2026-11-02).*
+
+It runs the extension's whole `activate()` against a stub `vscode`, so a new API call
+made at activation must be added to the stub. Extension 0.2.0 broke it on all three
+CI runners, because `createTreeView` (the Windows view) was missing. Re-run
+2026-11-02 after adding that and the other activation-time APIs: 10/10. The stub also
+points `LOCALAPPDATA` at a throwaway folder, because separate folder logins write a
+window record there at activation, and the check must not touch the real data root.
+Verified on the development machine: no new record in the real data root.

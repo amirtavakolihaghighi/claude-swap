@@ -113,7 +113,7 @@ export class FolderLogins implements vscode.Disposable {
 
   start(): void {
     if (!this.supported) {
-      void this.updateContext();
+      this.updateContext().catch((err) => logError('context keys', err));
       return;
     }
     for (const dir of [this.sessionsDir, this.windowsDir, this.loginsDir]) {
@@ -121,7 +121,7 @@ export class FolderLogins implements vscode.Disposable {
     }
     this.beat();
     this.timers.push(setInterval(() => this.beat(), HEARTBEAT_MS));
-    this.timers.push(setInterval(() => void this.sync(), SYNC_MS));
+    this.timers.push(setInterval(() => this.sync().catch((err) => logError('login folder sync', err)), SYNC_MS));
     for (const dir of [this.sessionsDir, this.windowsDir]) {
       try {
         this.watchers.push(fs.watch(dir, () => this.changed()));
@@ -133,7 +133,7 @@ export class FolderLogins implements vscode.Disposable {
       vscode.window.onDidChangeWindowState(() => this.beat()),
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
         this.beat();
-        void this.updateContext();
+        this.updateContext().catch((err) => logError('context keys', err));
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration(`${WRAPPER_SECTION}.${WRAPPER_KEY}`)) {
@@ -141,9 +141,10 @@ export class FolderLogins implements vscode.Disposable {
         }
       })
     );
-    void this.repairLauncher();
-    void this.sync();
-    void this.updateContext();
+    // Background work: a failure here is logged, never left as an unhandled rejection.
+    this.repairLauncher().catch((err) => logError('launcher check', err));
+    this.sync().catch((err) => logError('login folder sync', err));
+    this.updateContext().catch((err) => logError('context keys', err));
   }
 
   dispose(): void {
@@ -169,7 +170,7 @@ export class FolderLogins implements vscode.Disposable {
     }
     this.changeTimer = setTimeout(() => {
       this.changeTimer = undefined;
-      void this.updateContext();
+      this.updateContext().catch((err) => logError('context keys', err));
       this.emitter.fire();
     }, 400);
   }

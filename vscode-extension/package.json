@@ -2,7 +2,7 @@
   "name": "claude-swap-vscode",
   "displayName": "Claude Swap",
   "description": "Switch Claude Code accounts from the VS Code status bar, with live usage, optional background auto-switching, and separate logins per folder.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "amirtavakolihaghighi",
   "license": "MIT",
   "repository": {

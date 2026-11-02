@@ -24,10 +24,17 @@
  */
 const Module = require('module');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const EXT = path.join(REPO, 'vscode-extension');
+
+// Since extension 0.2.0, activation also starts separate folder logins, which on
+// Windows writes this window's heartbeat into %LOCALAPPDATA%\ClaudeSwapVSCode.
+// Point that at a throwaway folder, so running this check never touches the real
+// data root of whoever runs it.
+process.env.LOCALAPPDATA = fs.mkdtempSync(path.join(os.tmpdir(), 'cswap-verify-'));
 
 let statusBarState = {};
 let treeProvider = null;
@@ -48,13 +55,22 @@ const vscodeStub = {
   ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } },
   TreeItem: class { constructor(label, state) { this.label = label; this.collapsibleState = state; } },
   TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
-  EventEmitter: class { constructor() { this.event = () => ({ dispose() {} }); } fire() {} },
+  EventEmitter: class { constructor() { this.event = () => ({ dispose() {} }); } fire() {} dispose() {} },
   MarkdownString: class {
     constructor() { this.value = ''; }
     appendMarkdown(s) { this.value += s; return this; }
   },
-  Uri: { file: (p) => ({ fsPath: p }) },
+  ProgressLocation: { Notification: 15 },
+  Uri: {
+    file: (p) => ({ fsPath: p }),
+    joinPath: (base, ...parts) => ({ fsPath: path.join(base.fsPath, ...parts), with: () => ({}) }),
+  },
+  extensions: { getExtension: () => undefined },
   window: {
+    // The Windows view (0.2.0) is created with createTreeView, not registered.
+    createTreeView: () => ({ visible: false, onDidChangeVisibility: () => ({ dispose() {} }), dispose() {} }),
+    onDidChangeWindowState: () => ({ dispose() {} }),
+    state: { focused: true },
     createOutputChannel: () => ({ appendLine: () => {}, show: () => {}, dispose: () => {} }),
     createStatusBarItem: () => ({
       show: () => {}, dispose: () => {},
@@ -76,9 +92,15 @@ const vscodeStub = {
     executeCommand: () => Promise.resolve(),
   },
   workspace: {
-    workspaceFolders: [], isTrusted: true,
-    getConfiguration: () => ({ get: (k) => settings[k], update: () => Promise.resolve() }),
+    workspaceFolders: [], isTrusted: true, name: undefined,
+    getConfiguration: () => ({
+      get: (k) => settings[k],
+      // Separate folder logins read the Claude extension's setting this way: unset here.
+      inspect: () => undefined,
+      update: () => Promise.resolve(),
+    }),
     onDidChangeConfiguration: () => ({ dispose: () => {} }),
+    onDidChangeWorkspaceFolders: () => ({ dispose: () => {} }),
   },
 };
 
@@ -132,6 +154,8 @@ const context = {
   subscriptions: [],
   globalState: { get: () => undefined, update: () => Promise.resolve() },
   globalStorageUri: { fsPath: path.join(__dirname, 'gs') },
+  extensionUri: { fsPath: EXT },
+  asAbsolutePath: (p) => path.join(EXT, p),
 };
 
 function check(label, condition, detail) {
