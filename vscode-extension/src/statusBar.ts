@@ -3,7 +3,9 @@
 import * as vscode from 'vscode';
 import {
   BurnRate,
+  STATUS_LABELS,
   bindingWindow,
+  describeFetchError,
   earliestFiveHourReset,
   effectiveUsage,
   formatMinutes,
@@ -11,7 +13,7 @@ import {
   hiddenModelConstraint,
   worstScopedWindow,
 } from './analysis';
-import { Account, ListPayload, UsageStatus, UsageWindow } from './types';
+import { Account, ListPayload, UsageWindow } from './types';
 
 /** Above this, the item turns red; the default auto-switch threshold is 90. */
 const PCT_DANGER = 90;
@@ -19,18 +21,6 @@ const PCT_DANGER = 90;
 const PCT_WARN = 75;
 /** Beyond this many accounts, the status bar shows only the active one. */
 const MAX_ACCOUNTS_INLINE = 4;
-
-/** Short human labels for the non-ok usage states. */
-export const STATUS_LABELS: Record<UsageStatus, string> = {
-  ok: 'ok',
-  token_expired: 'token expired',
-  api_key: 'API key (no quota)',
-  keychain_unavailable: 'keychain unreadable',
-  relogin_required: 'needs /login',
-  foreign_credential: 'credential mismatch',
-  no_credentials: 'no credentials',
-  unavailable: 'usage unavailable',
-};
 
 export function pct(value: number): string {
   return `${Math.round(value)}%`;
@@ -99,7 +89,7 @@ function accountLines(account: Account, rate: BurnRate | undefined): string[] {
   if (!effective) {
     lines.push(`　　${STATUS_LABELS[account.usageStatus] ?? account.usageStatus}`);
     if (account.usageError) {
-      lines.push(`　　_last fetch failed: ${account.usageError}_`);
+      lines.push(`　　_last check failed: ${describeFetchError(account.usageError)}_`);
     }
     return lines;
   }
@@ -335,4 +325,4 @@ export class StatusBar {
 }
 
 // Re-exported so other modules have one import site for display helpers.
-export { bindingWindow, effectiveUsage, worstScopedWindow };
+export { STATUS_LABELS, bindingWindow, effectiveUsage, worstScopedWindow };

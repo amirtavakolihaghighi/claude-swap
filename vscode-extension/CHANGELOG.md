@@ -10,6 +10,28 @@ This file covers **the extension only**. The core `cswap` CLI is maintained
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-02
+
+### Changed
+
+- **Refresh says what it found.** A click now ends with a short message giving
+  each account's reading age — "#2 (active) was checked just now. #1 was checked
+  4m ago." — and, for a check that failed, the reason in plain words, how old the
+  numbers on screen are and when the next try is ("a network problem reaching
+  Anthropic — showing numbers from 25m ago, next try in about 3m"). Refresh cannot
+  force new numbers: claude-swap serves its latest reading until the account's next
+  scheduled check, because Anthropic allows only about 30 usage checks an hour per
+  account. So a click usually changed nothing on screen, and looked broken.
+- The tooltip's failure line uses the same plain words instead of codes like
+  `http-429`.
+
+### Fixed
+
+- **A click on Refresh during a background refresh was dropped without a word.**
+  It now waits for the refresh already running ("Checking usage…" in the status
+  bar) and reports what it found. A `cswap list` waiting out a network timeout can
+  take many seconds, so this was easy to hit.
+
 ## [0.1.1] - 2026-11-02
 
 ### Changed
@@ -102,6 +124,7 @@ First working version.
   interleaving, and the leader lease elected exactly 1 leader from 8 simultaneous
   processes across 5 consecutive runs.
 
-[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.1.1...HEAD
+[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.1.2...HEAD
+[0.1.2]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.2
 [0.1.1]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.1
 [0.1.0]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.0

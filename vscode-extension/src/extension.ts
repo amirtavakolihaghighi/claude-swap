@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BurnRate, afterSwitchNotice } from './analysis';
+import { BurnRate, afterSwitchNotice, describeRefresh } from './analysis';
 import { AutoSwitcher } from './autoSwitch';
 import * as cswap from './cswap';
 import { CswapError, CswapNotFoundError } from './cswap';
@@ -22,7 +22,9 @@ let tree: AccountsTreeProvider;
 let refreshTimer: NodeJS.Timeout | undefined;
 let lastPayload: ListPayload | undefined;
 let threshold: number | undefined;
-let refreshing = false;
+
+type LoadResult = { ok: true } | { ok: false; error: unknown };
+let inFlight: Promise<LoadResult> | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   initLog(context);
@@ -115,13 +117,40 @@ function render(): void {
 /**
  * Refresh the account list. `interactive` means the user asked directly, so
  * failures are surfaced as notifications rather than only logged — a background
- * tick that fails because the laptop is offline should not pop a dialog.
+ * tick that fails because the laptop is offline should not pop a dialog — and the
+ * result is reported even when no number changed, because a click that changes
+ * nothing on screen reads as a click that did nothing.
+ *
+ * A click while a refresh is already running joins it. It used to return at once
+ * without a word, which was one way "Refresh does nothing" happened: a `cswap list`
+ * waiting out a network timeout can take many seconds.
  */
 async function refresh(interactive = false): Promise<void> {
-  if (refreshing) {
+  if (interactive) {
+    statusBar.setBusy('Checking usage…');
+  } else if (inFlight) {
+    return; // a background tick adds nothing to a refresh that is already running
+  }
+  if (!inFlight) {
+    inFlight = load().finally(() => {
+      inFlight = undefined;
+    });
+  }
+  const result = await inFlight;
+  if (!result.ok) {
+    handleFailure(result.error, interactive);
     return;
   }
-  refreshing = true;
+  if (interactive && lastPayload) {
+    render(); // clears the busy text, whichever caller started the load
+    void vscode.window.showInformationMessage(
+      `Claude Swap: ${describeRefresh(lastPayload.accounts, Date.now())}`
+    );
+  }
+}
+
+/** One `cswap list`, recorded and rendered. Never throws: callers report the failure. */
+async function load(): Promise<LoadResult> {
   try {
     if (threshold === undefined) {
       threshold = await cswap.autoSwitchThreshold();
@@ -133,16 +162,14 @@ async function refresh(interactive = false): Promise<void> {
     history.observe(payload.accounts);
     render();
     notices.check(payload, threshold ?? DEFAULT_THRESHOLD);
+    return { ok: true };
   } catch (err) {
-    handleFailure(err, interactive);
-  } finally {
-    refreshing = false;
+    logError('refresh', err); // here, not in handleFailure: a joined load fails once
+    return { ok: false, error: err };
   }
 }
 
 function handleFailure(err: unknown, interactive: boolean): void {
-  logError('refresh', err);
-
   if (err instanceof CswapNotFoundError) {
     const message = 'cswap was not found. Click to set its location.';
     statusBar.render({ error: message, autoSwitchEnabled: false });

@@ -18,6 +18,8 @@ import {
   afterSwitchNotice,
   bindingWindow,
   computeBurnRate,
+  describeFetchError,
+  describeRefresh,
   earliestFiveHourReset,
   effectiveUsage,
   formatMinutes,
@@ -464,5 +466,85 @@ describe('afterSwitchNotice', () => {
     const notice = afterSwitchNotice('darwin');
     assert.equal(notice.offerReload, true);
     assert.match(notice.note, /30 seconds/);
+  });
+});
+
+describe('describeFetchError', () => {
+  it('puts the failure kinds seen in a real log into plain words', () => {
+    // One week of the development machine's log, 2026-11-02: 39 network, 16
+    // timeout, 18 http-403, 24 http-429.
+    assert.equal(describeFetchError('network'), 'a network problem reaching Anthropic');
+    assert.equal(describeFetchError('timeout'), 'Anthropic took too long to answer');
+    assert.match(describeFetchError('http-403'), /refused/);
+    assert.match(describeFetchError('http-429'), /too many usage checks/);
+  });
+
+  it('groups server errors and keeps the code for anything else it does not know', () => {
+    assert.match(describeFetchError('http-503'), /Anthropic's side \(error 503\)/);
+    assert.match(describeFetchError('http-418'), /error 418/);
+    assert.match(describeFetchError('RemoteDisconnected'), /RemoteDisconnected/);
+  });
+});
+
+describe('describeRefresh', () => {
+  const NOW = Date.parse('2026-11-02T12:00:00Z');
+
+  it('puts the active account first and calls a reading under a minute old just now', () => {
+    const text = describeRefresh(
+      [
+        account({ number: 1, usage: usage(10), usageAgeSeconds: 240 }),
+        account({ number: 2, active: true, usage: usage(20), usageAgeSeconds: 5 }),
+      ],
+      NOW
+    );
+    assert.ok(text.startsWith('#2 (active) was checked just now. #1 was checked 4m ago.'), text);
+  });
+
+  it('explains a minutes-old reading, so an unchanged screen does not look like a broken button', () => {
+    const text = describeRefresh([account({ usage: usage(10), usageAgeSeconds: 240 })], NOW);
+    assert.match(text, /about 30 usage checks an hour/);
+  });
+
+  it('adds no explanation when every reading is fresh', () => {
+    const text = describeRefresh([account({ usage: usage(10), usageAgeSeconds: 3 })], NOW);
+    assert.equal(text, '#1 was checked just now.');
+  });
+
+  it('says why a check failed, how old the shown numbers are, and when it tries again', () => {
+    const text = describeRefresh(
+      [
+        account({
+          usageStatus: 'unavailable',
+          lastGoodUsage: usage(30),
+          lastGoodAgeSeconds: 25 * 60,
+          usageError: 'network',
+          usageRetryAt: new Date(NOW + 3 * MIN).toISOString(),
+        }),
+      ],
+      NOW
+    );
+    assert.equal(
+      text,
+      '#1 has no new numbers: a network problem reaching Anthropic — ' +
+        'showing numbers from 25m ago, next try in about 3m.'
+    );
+  });
+
+  it('says a retry whose time has already come is due any moment', () => {
+    const text = describeRefresh(
+      [
+        account({
+          usageStatus: 'unavailable',
+          usageError: 'timeout',
+          usageRetryAt: new Date(NOW - MIN).toISOString(),
+        }),
+      ],
+      NOW
+    );
+    assert.equal(text, '#1 has no new numbers: Anthropic took too long to answer, next try any moment.');
+  });
+
+  it('names the other states with the labels the tooltip already uses', () => {
+    assert.equal(describeRefresh([account({ usageStatus: 'relogin_required' })], NOW), '#1: needs /login.');
   });
 });

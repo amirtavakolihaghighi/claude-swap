@@ -9,7 +9,7 @@
  * `resetsAt` timestamp.
  */
 
-import { Account, Usage, UsageWindow } from './types';
+import { Account, Usage, UsageStatus, UsageWindow } from './types';
 
 /** A recorded observation of one account, for rate-of-change analysis. */
 export interface UsageSample {
@@ -382,6 +382,122 @@ export function afterSwitchNotice(platform: string): { note: string; offerReload
     note: "It's active now — your next message in any Claude tab uses it.",
     offerReload: false,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Explaining a manual refresh
+// ---------------------------------------------------------------------------
+
+/** Short human labels for the non-ok usage states. */
+export const STATUS_LABELS: Record<UsageStatus, string> = {
+  ok: 'ok',
+  token_expired: 'token expired',
+  api_key: 'API key (no quota)',
+  keychain_unavailable: 'keychain unreadable',
+  relogin_required: 'needs /login',
+  foreign_credential: 'credential mismatch',
+  no_credentials: 'no credentials',
+  unavailable: 'usage unavailable',
+};
+
+/**
+ * A failed usage check, in plain words. `kind` is claude-swap's stable token from
+ * `_classify_usage_error` in oauth.py: `http-<code>`, `timeout`, `network`,
+ * `bad-response`, or an exception class name as a fallback.
+ */
+export function describeFetchError(kind: string): string {
+  switch (kind) {
+    case 'network':
+      return 'a network problem reaching Anthropic';
+    case 'timeout':
+      return 'Anthropic took too long to answer';
+    case 'bad-response':
+      return "Anthropic's answer could not be read";
+  }
+  const http = /^http-(\d{3})$/.exec(kind);
+  if (!http) {
+    return `the check failed (${kind})`;
+  }
+  const code = Number(http[1]);
+  if (code === 429) {
+    return 'too many usage checks, so Anthropic asked to wait';
+  }
+  if (code === 401) {
+    return "Anthropic didn't accept the login";
+  }
+  if (code === 403) {
+    return 'Anthropic refused the request';
+  }
+  if (code >= 500) {
+    return `a problem on Anthropic's side (error ${code})`;
+  }
+  return `Anthropic answered with error ${code}`;
+}
+
+/** Below this age a reading is reported as "just now". */
+const JUST_NOW_S = 60;
+
+// Not "every few minutes": after an http-429 claude-swap backs off much further, and
+// the first real run of this message showed the active account 22 minutes old.
+const CADENCE_NOTE =
+  "Refresh shows the latest check; it can't force a new one. Anthropic allows only " +
+  'about 30 usage checks an hour per account, so Claude Swap spaces them out, and ' +
+  'waits longer after Anthropic says it has had too many.';
+
+/**
+ * What a manual refresh found, one sentence per account (active first), for the
+ * notification shown after the click.
+ *
+ * A click cannot force new numbers: claude-swap serves its stored reading until the
+ * account's next scheduled check, because the usage endpoint allows ~28-30 requests
+ * an hour per account (see poll_policy.py). So a click usually changes nothing on
+ * screen, which a user reported as "Refresh does nothing" (2026-11-02). Saying how
+ * old each reading is, and why a failed check failed, turns that silence into an
+ * answer. The cadence is deliberately not restated in numbers: it is claude-swap's
+ * policy and changes there.
+ */
+export function describeRefresh(accounts: Account[], nowMs: number): string {
+  if (accounts.length === 0) {
+    return 'No accounts are set up yet.';
+  }
+  const ordered = [...accounts].sort(
+    (a, b) => Number(b.active) - Number(a.active) || a.number - b.number
+  );
+  const sentences: string[] = [];
+  let showsAgingReading = false;
+
+  for (const account of ordered) {
+    const label = `#${account.number}${account.active ? ' (active)' : ''}`;
+
+    if (account.usage) {
+      const age = account.usageAgeSeconds;
+      if (age === undefined || age < JUST_NOW_S) {
+        sentences.push(`${label} was checked just now.`);
+      } else {
+        showsAgingReading = true;
+        sentences.push(`${label} was checked ${formatMinutes(age / 60)} ago.`);
+      }
+      continue;
+    }
+
+    let sentence = account.usageError
+      ? `${label} has no new numbers: ${describeFetchError(account.usageError)}`
+      : `${label}: ${STATUS_LABELS[account.usageStatus] ?? account.usageStatus}`;
+    if (account.lastGoodAgeSeconds !== undefined) {
+      sentence += ` — showing numbers from ${formatMinutes(account.lastGoodAgeSeconds / 60)} ago`;
+    }
+    const retryAt = account.usageRetryAt ? Date.parse(account.usageRetryAt) : Number.NaN;
+    if (Number.isFinite(retryAt)) {
+      const minutes = (retryAt - nowMs) / 60_000;
+      sentence += minutes < 1 ? ', next try any moment' : `, next try in about ${formatMinutes(minutes)}`;
+    }
+    sentences.push(`${sentence}.`);
+  }
+
+  if (showsAgingReading) {
+    sentences.push(CADENCE_NOTE);
+  }
+  return sentences.join(' ');
 }
 
 /** "2h 40m", "45m", "less than a minute" — for durations we compute ourselves. */
