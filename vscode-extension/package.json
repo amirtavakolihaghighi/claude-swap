@@ -1,8 +1,8 @@
 {
   "name": "claude-swap-vscode",
   "displayName": "Claude Swap",
-  "description": "Switch Claude Code accounts from the VS Code status bar, with live usage and optional background auto-switching.",
-  "version": "0.1.3",
+  "description": "Switch Claude Code accounts from the VS Code status bar, with live usage, optional background auto-switching, and separate logins per folder.",
+  "version": "0.2.0",
   "publisher": "amirtavakolihaghighi",
   "license": "MIT",
   "repository": {
@@ -30,12 +30,18 @@
   "contributes": {
     "commands": [
       {
+        "command": "claudeSwap.help",
+        "title": "Claude Swap: Help — What Everything Does",
+        "icon": "$(question)"
+      },
+      {
         "command": "claudeSwap.switchAccount",
         "title": "Claude Swap: Switch Account…"
       },
       {
         "command": "claudeSwap.switchBest",
-        "title": "Claude Swap: Switch to Account With Most Quota"
+        "title": "Claude Swap: Switch to Account With Most Quota",
+        "icon": "$(rocket)"
       },
       {
         "command": "claudeSwap.rescue",
@@ -43,7 +49,8 @@
       },
       {
         "command": "claudeSwap.refresh",
-        "title": "Claude Swap: Refresh Usage Now"
+        "title": "Claude Swap: Refresh Usage Now",
+        "icon": "$(refresh)"
       },
       {
         "command": "claudeSwap.saveLogin",
@@ -55,8 +62,38 @@
         "title": "Claude Swap: Toggle Background Auto-Switch"
       },
       {
+        "command": "claudeSwap.folderLogins.turnOn",
+        "title": "Claude Swap: Turn On Separate Folder Logins",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "claudeSwap.folderLogins.turnOff",
+        "title": "Claude Swap: Turn Off Separate Folder Logins",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "claudeSwap.folderLogins.setUp",
+        "title": "Claude Swap: Use a Separate Login in This Folder…",
+        "icon": "$(add)"
+      },
+      {
+        "command": "claudeSwap.folderLogins.stop",
+        "title": "Claude Swap: Stop Using the Separate Login in This Folder…",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "claudeSwap.goToWindow",
+        "title": "Claude Swap: Go to Window",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "claudeSwap.windows.refresh",
+        "title": "Claude Swap: Refresh the Windows List",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "claudeSwap.bindFolder",
-        "title": "Claude Swap: Bind This Folder to an Account"
+        "title": "Claude Swap: Bind Folder for Terminal Sessions (cswap run)"
       },
       {
         "command": "claudeSwap.openDashboard",
@@ -86,51 +123,51 @@
         "claudeSwap.executablePath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Full path to the `cswap` executable. Leave empty to search your PATH and the usual `uv`/`pipx` install locations. Set this if you installed claude-swap somewhere unusual, or if you run it from a virtualenv — for example `C:/tools/claude-swap/.venv/Scripts/cswap.exe` on Windows, or `~/.local/bin/cswap` on macOS and Linux.",
+          "markdownDescription": "**Where the `cswap` program is.** Leave empty and Claude Swap looks for it on your PATH, in the usual `uv` and `pipx` install places, and in a trusted open folder's `.venv`.\n\n**You will see:** nothing, when it is found. If not, the status bar shows an error with a button that opens this setting.\n\n**Set it** if cswap lives somewhere unusual, for example `C:/tools/claude-swap/.venv/Scripts/cswap.exe`. Only your own user settings can set this; an opened project cannot, so it cannot make Claude Swap run a program of its choosing.",
           "scope": "machine"
         },
         "claudeSwap.refreshIntervalSeconds": {
           "type": "number",
           "default": 60,
           "minimum": 15,
-          "markdownDescription": "How often to refresh the status bar. Note that claude-swap paces the real network calls itself, so a lower value here mostly just re-reads its cache — it does **not** get you fresher numbers, and values under 30 are discouraged."
+          "markdownDescription": "**How often the status bar and sidebar re-read usage from cswap**, in seconds.\n\n**You will see:** the numbers update at most this often.\n\n**Good to know:** this does **not** get fresher numbers. cswap asks Anthropic on its own schedule, because Anthropic allows only about 30 usage checks an hour per account, so a lower value here only re-reads the same saved reading. Values under 30 are discouraged."
         },
         "claudeSwap.autoSwitch.enabled": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Run a background auto-switch check, so you move off an account before it hits its limit without any terminal window open. Uses `cswap auto --once`, which reads claude-swap's own `autoswitch.*` settings — so the threshold and strategy stay in one place. Change them with `cswap config set autoswitch.threshold 80`."
+          "markdownDescription": "**Background auto-switch.** When on, Claude Swap checks regularly and switches the main login to a better account before the active one hits its limit — no terminal needed.\n\n**You will see:** a notification each time it switches (see the next setting).\n\n**Good to know:** it switches the **main login**, so every window without a separate folder login moves with it. The threshold and strategy are cswap's own settings, shared with the terminal; change them with `cswap config set autoswitch.threshold 80`."
         },
         "claudeSwap.autoSwitch.intervalSeconds": {
           "type": "number",
           "default": 60,
           "minimum": 30,
-          "description": "How often the background auto-switch check runs."
+          "markdownDescription": "**How often the background auto-switch checks**, in seconds. Only matters while auto-switch is on. Only one VS Code window runs the check, however many are open."
         },
         "claudeSwap.autoSwitch.notify": {
           "type": "boolean",
           "default": true,
-          "description": "Show a notification when the background auto-switch changes your account."
+          "markdownDescription": "**Tell me when auto-switch changes my account.** When off, it switches silently; the status bar still shows which account is active."
         },
         "claudeSwap.warnLoginExpiryDays": {
           "type": "number",
           "default": 3,
           "minimum": 0,
-          "description": "Warn this many days before a stored account's login expires and needs a fresh /login. Set to 0 to disable."
+          "markdownDescription": "**Warn this many days before a login ends.** Every Claude login lasts about 30 days, after which you must sign in again.\n\n**You will see:** a warning once a day while a login is that close to its end — for saved accounts and for separate folder logins alike. `0` turns the warnings off."
         },
         "claudeSwap.showPaceWarnings": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Warn when an account is burning its weekly quota fast enough that it is projected to run out before the weekly reset. This is a rough linear projection, not a promise."
+          "markdownDescription": "**Warn when an account is on course to run out of its weekly quota before the week resets.**\n\n**You will see:** at most one notification a day per account. It is a rough straight-line projection, not a promise."
         },
         "claudeSwap.statusBar.showAllAccounts": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show every account's usage in the status bar (`#2 19% | #1 61%`) rather than only the active one. Automatically falls back to the active account alone when you manage more than four."
+          "markdownDescription": "**Show every account in the status bar** (`#2 19% | #1 61%`) instead of only the active one. With more than four accounts it shows only the active one regardless."
         },
         "claudeSwap.notifyOnReset": {
           "type": "boolean",
           "default": true,
-          "description": "Notify when every account is spent, and again the moment quota becomes available."
+          "markdownDescription": "**Tell me when every account is spent, and again when one has room.** The second message has a button that switches straight to the account with room."
         }
       }
     },
@@ -149,6 +186,11 @@
           "id": "claudeSwap.accounts",
           "name": "Accounts",
           "icon": "media/claude-swap.svg"
+        },
+        {
+          "id": "claudeSwap.windows",
+          "name": "Windows",
+          "icon": "media/claude-swap.svg"
         }
       ]
     },
@@ -157,23 +199,44 @@
         {
           "command": "claudeSwap.switchToAccount",
           "when": "false"
+        },
+        {
+          "command": "claudeSwap.goToWindow",
+          "when": "false"
+        },
+        {
+          "command": "claudeSwap.folderLogins.turnOn",
+          "when": "!claudeSwap.folderLogins.on"
+        },
+        {
+          "command": "claudeSwap.folderLogins.turnOff",
+          "when": "claudeSwap.folderLogins.on"
+        },
+        {
+          "command": "claudeSwap.folderLogins.stop",
+          "when": "claudeSwap.folderLogins.thisFolderSetUp"
         }
       ],
       "view/title": [
         {
           "command": "claudeSwap.refresh",
           "when": "view == claudeSwap.accounts",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "claudeSwap.switchBest",
           "when": "view == claudeSwap.accounts",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "claudeSwap.saveLogin",
           "when": "view == claudeSwap.accounts",
-          "group": "navigation"
+          "group": "navigation@3"
+        },
+        {
+          "command": "claudeSwap.help",
+          "when": "view == claudeSwap.accounts",
+          "group": "navigation@9"
         },
         {
           "command": "claudeSwap.showBurnRate",
@@ -189,12 +252,47 @@
           "command": "claudeSwap.clearHistory",
           "when": "view == claudeSwap.accounts",
           "group": "9_danger"
+        },
+        {
+          "command": "claudeSwap.folderLogins.turnOn",
+          "when": "view == claudeSwap.windows && claudeSwap.folderLogins.supported && !claudeSwap.folderLogins.on",
+          "group": "navigation@1"
+        },
+        {
+          "command": "claudeSwap.folderLogins.setUp",
+          "when": "view == claudeSwap.windows && claudeSwap.folderLogins.on && !claudeSwap.folderLogins.thisFolderSetUp",
+          "group": "navigation@2"
+        },
+        {
+          "command": "claudeSwap.windows.refresh",
+          "when": "view == claudeSwap.windows",
+          "group": "navigation@3"
+        },
+        {
+          "command": "claudeSwap.help",
+          "when": "view == claudeSwap.windows",
+          "group": "navigation@9"
+        },
+        {
+          "command": "claudeSwap.folderLogins.stop",
+          "when": "view == claudeSwap.windows && claudeSwap.folderLogins.thisFolderSetUp",
+          "group": "1_folder"
+        },
+        {
+          "command": "claudeSwap.folderLogins.turnOff",
+          "when": "view == claudeSwap.windows && claudeSwap.folderLogins.on",
+          "group": "9_danger"
         }
       ],
       "view/item/context": [
         {
           "command": "claudeSwap.switchToAccount",
           "when": "view == claudeSwap.accounts && viewItem == switchableAccount",
+          "group": "inline"
+        },
+        {
+          "command": "claudeSwap.goToWindow",
+          "when": "view == claudeSwap.windows && viewItem == window.other",
           "group": "inline"
         }
       ]

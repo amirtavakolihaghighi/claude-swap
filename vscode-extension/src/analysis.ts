@@ -400,6 +400,21 @@ export const STATUS_LABELS: Record<UsageStatus, string> = {
   unavailable: 'usage unavailable',
 };
 
+/** What each state means and what to do about it, for tooltips. */
+export const STATUS_HELP: Record<UsageStatus, string> = {
+  ok: 'Usage was read normally.',
+  token_expired:
+    "Its short-term key has expired. That is normal: Claude renews it on the next message sent with this account. Nothing to do.",
+  api_key: 'This account uses an API key, which has no subscription limits to show.',
+  keychain_unavailable: 'The macOS Keychain could not be read right now (locked, or no desktop session). It is tried again later.',
+  relogin_required:
+    'Its saved login no longer works. Sign in to Claude as this account (type /login in a Claude tab), then use Save Current Login.',
+  foreign_credential:
+    'The login Claude holds belongs to a different account than this one. Sign in as the right account, then use Save Current Login.',
+  no_credentials: 'Claude Swap has no saved login for this account. Sign in to Claude as it, then use Save Current Login.',
+  unavailable: "Usage could not be checked just now. Claude Swap keeps the last good numbers and tries again on its own schedule.",
+};
+
 /**
  * A failed usage check, in plain words. `kind` is claude-swap's stable token from
  * `_classify_usage_error` in oauth.py: `http-<code>`, `timeout`, `network`,

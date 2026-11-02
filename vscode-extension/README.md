@@ -45,6 +45,22 @@ switching back to it keeps working. The key icon at the top of the sidebar, *Sav
 login* in the hover box, or *Claude Swap: Save Current Login*. It also offers
 itself when it notices a sign-in it may not have saved.
 
+**Separate folder logins** (Windows) — a chosen folder's Claude tabs use their own
+login for an account, while every other window keeps the main login and follows it
+when you switch. A work project can stay on the work account, while everything else
+moves with you. The same account can be used by a folder and the main login at once,
+because the folder signs in separately. Turn it on from the **Windows** view; every
+step says what it changes first. See *Claude Swap: Help* for the details, including
+what is shared between windows and what is kept separate.
+
+**A Windows view** listing every open VS Code window, the same in each: which login
+its Claude tabs use, whether a separate login is signed in, how many Claude tabs run
+there, and a button to bring it to the front.
+
+**Help for everything** — *Claude Swap: Help* (or the ? button) explains every
+command, view, message and setting: what it does, what you will see, and anything
+risky or lasting.
+
 ### Things it tells you that you would otherwise find out the hard way
 
 - **A per-model limit is your real limit.** You can be blocked by the weekly Fable

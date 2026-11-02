@@ -10,6 +10,62 @@ This file covers **the extension only**. The core `cswap` CLI is maintained
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-02
+
+### Added
+
+- **Separate folder logins** (Windows). Claude tabs in a chosen folder use their own
+  login for an account, while every other window keeps the main login and follows
+  it when you switch. Anthropic's Claude extension can start Claude through a
+  program named in `claudeCode.claudeProcessWrapper`. Claude Swap builds such a
+  launcher with the C# compiler that ships with .NET Framework 4, and points the
+  setting at it. In a folder you set up, the launcher sets `CLAUDE_CONFIG_DIR` to
+  that folder's login folder; everywhere else it changes nothing. The Claude
+  extension then shows that login, its sign-in screen and its history, in that
+  window only, because it follows the config home `claude auth status` reports.
+  - The folder's login is a separate sign-in, not a copy of the saved one, so the
+    main login and a folder can use the same account at once. A copied login would
+    break at the first renewal, because renewal tickets work once.
+  - Shared with other windows: conversations, Claude's project notes and rewind
+    checkpoints (directory junctions, which need no admin rights), settings and
+    hooks, CLAUDE.md and user-level MCP servers. Kept separate: the login, and the
+    skills and plugins claude.ai syncs to each account.
+  - Commands: *Turn On / Turn Off Separate Folder Logins*, *Use a Separate Login in
+    This Folder…*, *Stop Using the Separate Login in This Folder…*. Each confirms
+    first and says what changes and any side effects.
+- **Windows view** in the sidebar. Every open VS Code window, the same in each one:
+  which login its Claude tabs use, whether a separate login is signed in (and as
+  whom, and for how many more days), how many Claude tabs run there, and a button
+  to bring it to the front.
+- **Help.** *Claude Swap: Help* (also the ? button and the Help link in the hover
+  box) opens a page describing every command, view, message and setting: what it
+  does, what you will see, and anything risky or lasting. Every setting's
+  description now follows the same pattern, and every sidebar row explains itself
+  on hover.
+- Warnings for a separate login that signed in with the wrong account, or is about
+  to end.
+
+### Changed
+
+- Turning on background auto-switch and clearing usage history now ask first,
+  saying what will happen.
+- *Bind This Folder to an Account* is renamed *Bind Folder for Terminal Sessions
+  (cswap run)*, since it only ever affected `cswap run`, not Claude tabs.
+
+### Notes
+
+- Verified on Windows 10 against Claude Code 2.1.314, with the real bundled
+  `claude.exe` run through the launcher: a set-up folder reports its own login
+  folder as `configDirectory` (not signed in), and any other folder still reports
+  `~\.claude` (signed in).
+- The launcher hands claude only its three standard handles. Plain inheritance
+  leaked a second reference to the extension's output pipe into programs claude
+  starts. Measured 2026-11-02: under the launcher, a background program kept the
+  session's output open for its whole 6 s life; without the launcher, 1 ms. The
+  launcher's tests now guard this.
+- Deleting a login folder never follows a link: its tests delete one that links
+  to a sample conversation history and check that history is intact.
+
 ## [0.1.3] - 2026-11-02
 
 ### Added
@@ -153,7 +209,8 @@ First working version.
   interleaving, and the leader lease elected exactly 1 leader from 8 simultaneous
   processes across 5 consecutive runs.
 
-[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.1.3...HEAD
+[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.2.0...HEAD
+[0.2.0]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.2.0
 [0.1.3]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.3
 [0.1.2]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.2
 [0.1.1]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.1

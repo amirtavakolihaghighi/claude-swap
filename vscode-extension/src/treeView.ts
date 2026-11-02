@@ -12,6 +12,7 @@
 import * as vscode from 'vscode';
 import {
   BurnRate,
+  STATUS_HELP,
   bindingWindow,
   describeFetchError,
   effectiveUsage,
@@ -91,11 +92,11 @@ export class AccountsTreeProvider implements vscode.TreeDataProvider<Node> {
   getChildren(element?: Node): Node[] {
     if (!element) {
       if (this.error) {
-        return [new NoteNode(this.error, 'alert')];
+        return [new NoteNode(this.error, 'alert', 'Claude Swap could not read your accounts. "Show Logs" in the … menu has the details.')];
       }
       if (!this.payload || this.payload.accounts.length === 0) {
         return [
-          new NoteNode('No accounts managed yet', 'info'),
+          new NoteNode('No accounts managed yet', 'info', 'Claude Swap only knows the accounts whose login you have saved in it.'),
           new NoteNode('Sign in to Claude Code, then click here to save that login', 'key',
             undefined, SAVE_LOGIN),
         ];
@@ -116,12 +117,16 @@ export class AccountsTreeProvider implements vscode.TreeDataProvider<Node> {
     const effective = effectiveUsage(account);
     if (!effective) {
       const children: Node[] = [
-        new NoteNode(STATUS_LABELS[account.usageStatus] ?? account.usageStatus, 'circle-slash'),
+        new NoteNode(STATUS_LABELS[account.usageStatus] ?? account.usageStatus, 'circle-slash', STATUS_HELP[account.usageStatus]),
       ];
       if (account.usageError) {
         children.push(
-        new NoteNode(`last check failed: ${describeFetchError(account.usageError)}`, 'debug-disconnect')
-      );
+          new NoteNode(
+            `last check failed: ${describeFetchError(account.usageError)}`,
+            'debug-disconnect',
+            'Claude Swap keeps the last good numbers and tries again later, waiting longer after repeated failures.'
+          )
+        );
       }
       return children;
     }
@@ -152,7 +157,10 @@ export class AccountsTreeProvider implements vscode.TreeDataProvider<Node> {
       );
     }
     if (stale) {
-      children.push(new NoteNode('Showing last known numbers', 'history'));
+      children.push(
+        new NoteNode('Showing last known numbers', 'history',
+          `The latest check did not give new numbers (${STATUS_LABELS[account.usageStatus]}), so these are from the last one that did.`)
+      );
     }
     if (account.loginExpiresAt) {
       const days = daysUntil(account.loginExpiresAt);

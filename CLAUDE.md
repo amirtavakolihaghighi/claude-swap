@@ -12,7 +12,19 @@ This repo is a **fork** of [realiti4/claude-swap](https://github.com/realiti4/cl
 - Added root files: `.gitattributes`, `.editorconfig`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/vscode-extension.yml`.
 - `README.md` is the **one modified upstream file** (a "this is a fork" block after the intro). Expect a conflict there on upstream README changes; keep both sides.
 
-Extension work: `cd vscode-extension && npm test` (compiles + runs 67 tests). Pure logic goes in `src/analysis.ts`, which has no `vscode` import specifically so it is testable with `node --test`.
+Extension work: `cd vscode-extension && npm test` (compiles + runs 105 tests). Pure logic goes in `src/analysis.ts` and `src/folderMap.ts`, which have no `vscode` import specifically so they are testable with `node --test`.
+
+**Separate folder logins** (extension 0.2.0, Windows only). `launcher/claude-swap-launcher.cs` is set as Anthropic's `claudeCode.claudeProcessWrapper`. It is built at runtime with the .NET Framework 4 `csc.exe` that ships with Windows, so it must stay C# 5: no `$""`, `?.` or `=>` members. It is installed under `%LOCALAPPDATA%\ClaudeSwapVSCode`, not the versioned extension folder, which updates rename. On each Claude start it maps the working directory through `folder-map.tsv` to a per-account login folder via `CLAUDE_CONFIG_DIR`. Each folder login is a separate sign-in, never a copy of cswap's saved login, because a copied refresh lineage dies at the first renewal. Rules that tests guard:
+
+- The launcher passes claude **only its three std handles** (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`). Plain inheritance leaked the extension's output pipe into programs claude starts.
+- `launcher.test.ts` builds and drives the real launcher; `folderMap.ts` path matching must equal the launcher's `FindLoginFolder`.
+- `loginFolders.removeTree` never follows a link. Login folders junction `projects/` to the real history, and `loginFolders.test.ts` proves a delete leaves it intact. Keep it that way.
+
+Behaviour of Anthropic's extension that this relies on, read from its 2.1.314 bundle:
+
+- `Ua()` spawns `<wrapper> <bundled claude.exe> <args>` with `shell:false`, so on Windows the wrapper must be a real `.exe`.
+- `claude auth status --json` also goes through it, and the panel follows the `configDirectory` it reports (`VEe`, "follow a moved config home").
+- With a wrapper set, the panel includes programmatic sessions in its list and skips the post-update probe.
 
 **On this machine:** `uv` is not installed, and `cswap` exists only in this repo's `.venv`. The Python baseline here is **2790 passed, 10 failed, 118 skipped** (2026-11-02, upstream v0.29.0) — all 10 are symlink tests whose *setup* raises `WinError 1314` at `Path.symlink_to`, because Windows blocks symlink creation without Developer Mode. Treat only new failures as real, and check a new one's traceback for `WinError 1314` before blaming a change: upstream's symlink tests grow with its releases (4 → 10 across 0.27–0.29).
 

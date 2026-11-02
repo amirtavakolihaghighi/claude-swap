@@ -158,6 +158,8 @@ export interface StatusBarModel {
   lastUpdated?: Date;
   /** Burn rate per account number, for the tooltip. */
   rates?: Map<number, BurnRate | undefined>;
+  /** Which login Claude uses in this window, when separate folder logins are on. */
+  windowNote?: string;
 }
 
 export class StatusBar {
@@ -311,6 +313,9 @@ export class StatusBar {
     const thresholdNote =
       model.threshold !== undefined ? ` at ${Math.round(model.threshold)}%` : '';
     md.appendMarkdown(`Background auto-switch: **${autoState}**${thresholdNote}\n\n`);
+    if (model.windowNote) {
+      md.appendMarkdown(`$(window) ${model.windowNote}\n\n`);
+    }
     if (model.lastUpdated) {
       md.appendMarkdown(`_Checked ${model.lastUpdated.toLocaleTimeString()}_\n\n`);
     }
@@ -320,7 +325,8 @@ export class StatusBar {
         '[Refresh](command:claudeSwap.refresh) · ' +
         '[Save login](command:claudeSwap.saveLogin) · ' +
         `[Turn auto-switch ${model.autoSwitchEnabled ? 'off' : 'on'}](command:claudeSwap.toggleAutoSwitch) · ` +
-        '[Logs](command:claudeSwap.showLogs)'
+        '[Logs](command:claudeSwap.showLogs) · ' +
+        '[Help](command:claudeSwap.help)'
     );
     return md;
   }

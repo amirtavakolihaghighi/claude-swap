@@ -9,6 +9,8 @@ import {
 import { AutoSwitcher } from './autoSwitch';
 import * as cswap from './cswap';
 import { CswapError, CswapNotFoundError } from './cswap';
+import { FolderLogins } from './folderLogins';
+import { WindowRow } from './folderMap';
 import { UsageHistory } from './history';
 import { LeaderLease } from './leader';
 import { initLog, log, logError, showLog } from './log';
@@ -16,6 +18,7 @@ import { Notices } from './notices';
 import { StatusBar, describeBurnRate, effectiveUsage } from './statusBar';
 import { AccountsTreeProvider } from './treeView';
 import { Account, ListPayload } from './types';
+import { WindowsTreeProvider } from './windowsView';
 
 /** Fallback when claude-swap's configured threshold cannot be read. */
 const DEFAULT_THRESHOLD = 90;
@@ -25,6 +28,9 @@ let notices: Notices;
 let autoSwitcher: AutoSwitcher;
 let history: UsageHistory;
 let tree: AccountsTreeProvider;
+let folderLogins: FolderLogins;
+let windowsTree: WindowsTreeProvider;
+let extensionUri: vscode.Uri;
 let refreshTimer: NodeJS.Timeout | undefined;
 let lastPayload: ListPayload | undefined;
 let threshold: number | undefined;
@@ -41,11 +47,39 @@ export function activate(context: vscode.ExtensionContext): void {
   history = new UsageHistory(context);
   tree = new AccountsTreeProvider();
   autoSwitcher = new AutoSwitcher(() => void refresh(), new LeaderLease(context));
+  extensionUri = context.extensionUri;
+  folderLogins = new FolderLogins(context, () => lastPayload?.accounts ?? [], openHelp);
+  windowsTree = new WindowsTreeProvider(folderLogins, () => lastPayload?.accounts.find((a) => a.active));
+  const windowsView = vscode.window.createTreeView('claudeSwap.windows', { treeDataProvider: windowsTree });
+  // Other windows open and close without telling this one, so re-read while visible.
+  const windowsTimer = setInterval(() => windowsView.visible && windowsTree.refresh(), 10_000);
 
   context.subscriptions.push(
     statusBar,
     autoSwitcher,
+    folderLogins,
+    windowsView,
+    { dispose: () => clearInterval(windowsTimer) },
+    folderLogins.onDidChange(() => {
+      windowsTree.refresh();
+      if (lastPayload) {
+        render(); // the tooltip names this window's login; no data yet means nothing to redraw
+      }
+    }),
+    windowsView.onDidChangeVisibility(() => windowsView.visible && windowsTree.refresh()),
     vscode.window.registerTreeDataProvider('claudeSwap.accounts', tree),
+    vscode.commands.registerCommand('claudeSwap.help', (section?: string) => openHelp(section)),
+    vscode.commands.registerCommand('claudeSwap.folderLogins.turnOn', () => folderLogins.turnOn()),
+    vscode.commands.registerCommand('claudeSwap.folderLogins.turnOff', () => folderLogins.turnOff()),
+    vscode.commands.registerCommand('claudeSwap.folderLogins.setUp', () => folderLogins.setUpFolder()),
+    vscode.commands.registerCommand('claudeSwap.folderLogins.stop', (binding?: unknown) =>
+      folderLogins.stopFolder(isBinding(binding) ? binding : undefined)
+    ),
+    // The "Go to this window" line passes the row; the inline button passes its tree node.
+    vscode.commands.registerCommand('claudeSwap.goToWindow', (arg?: WindowRow | { row?: WindowRow }) =>
+      folderLogins.goToWindow(arg && 'row' in arg ? arg.row : (arg as WindowRow | undefined))
+    ),
+    vscode.commands.registerCommand('claudeSwap.windows.refresh', () => windowsTree.refresh()),
     vscode.commands.registerCommand('claudeSwap.refresh', () => refresh(true, true)),
     vscode.commands.registerCommand('claudeSwap.saveLogin', saveLogin),
     vscode.commands.registerCommand('claudeSwap.switchAccount', switchAccount),
@@ -65,7 +99,26 @@ export function activate(context: vscode.ExtensionContext): void {
 
   restartRefreshTimer();
   autoSwitcher.sync();
+  folderLogins.start();
   void refresh();
+}
+
+/**
+ * The help page (HELP.md), shown as a formatted preview. `section` scrolls to a
+ * heading where the preview supports it; the page opens either way.
+ */
+function openHelp(section?: string): void {
+  const uri = vscode.Uri.joinPath(extensionUri, 'HELP.md');
+  void vscode.commands.executeCommand('markdown.showPreview', section ? uri.with({ fragment: section }) : uri);
+}
+
+function isBinding(value: unknown): value is import('./folderMap').FolderBinding {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { folder?: unknown }).folder === 'string' &&
+    typeof (value as { loginId?: unknown }).loginId === 'string'
+  );
 }
 
 export function deactivate(): void {
@@ -117,6 +170,7 @@ function render(): void {
     threshold,
     lastUpdated: lastPayload ? new Date() : undefined,
     rates,
+    windowNote: folderLogins.windowNote(),
   });
   tree.update(lastPayload, rates);
 }
@@ -452,6 +506,30 @@ function reportSaveFailure(err: unknown): void {
 async function toggleAutoSwitch(): Promise<void> {
   const config = vscode.workspace.getConfiguration('claudeSwap');
   const next = !(config.get<boolean>('autoSwitch.enabled') ?? false);
+  if (next) {
+    // Turning it on is the side with consequences: switches start happening
+    // without a click, and every window on the main login moves with them.
+    const confirmed = await vscode.window.showInformationMessage(
+      'Turn on background auto-switch?',
+      {
+        modal: true,
+        detail:
+          'WHAT IT DOES\n' +
+          `Claude Swap checks regularly and, when the active account nears ${
+            threshold !== undefined ? `${Math.round(threshold)}%` : 'its limit'
+          }, switches the main login to the account with the most room.\n\n` +
+          'WHAT YOU WILL SEE\nA notification each time it switches (unless turned off in Settings).\n\n' +
+          'GOOD TO KNOW\n' +
+          '• It moves every window that uses the main login. Folders with their own login are not affected.\n' +
+          '• Only one VS Code window runs the check, however many are open.\n' +
+          '• Turn it off the same way, at any time.',
+      },
+      'Turn on'
+    );
+    if (confirmed !== 'Turn on') {
+      return;
+    }
+  }
   await config.update('autoSwitch.enabled', next, vscode.ConfigurationTarget.Global);
   void vscode.window.showInformationMessage(
     next
@@ -562,6 +640,19 @@ async function showBurnRate(): Promise<void> {
 }
 
 async function clearHistory(): Promise<void> {
+  const confirmed = await vscode.window.showWarningMessage(
+    'Clear usage history?',
+    {
+      modal: true,
+      detail:
+        'WHAT IT DOES\nDeletes the usage readings this computer has recorded for the "How fast am I using quota?" estimates. Your accounts, logins and usage limits are not touched.\n\n' +
+        'GOOD TO KNOW\nThis cannot be undone. Estimates show "not enough history yet" until about an hour of new readings has built up.',
+    },
+    'Clear history'
+  );
+  if (confirmed !== 'Clear history') {
+    return;
+  }
   if (!lastPayload) {
     await refresh(true);
   }
