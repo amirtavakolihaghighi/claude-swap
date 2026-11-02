@@ -135,7 +135,7 @@ function accountLines(account: Account, rate: BurnRate | undefined): string[] {
     if (days !== undefined && days < 7) {
       const when = days < 1 ? 'less than a day' : `${Math.floor(days)} days`;
       lines.push(
-        `　　⚠ login expires in ${when} — run \`/login\` then \`cswap add --slot ${account.number}\``
+        `　　⚠ login expires in ${when} — when it does, sign in again as this account, then [save the login](command:claudeSwap.saveLogin)`
       );
     }
   }
@@ -282,7 +282,8 @@ export class StatusBar {
       md.appendMarkdown(`$(alert) ${model.error}\n\n`);
     } else if (!model.payload || model.payload.accounts.length === 0) {
       md.appendMarkdown(
-        'No accounts are managed yet. Log into Claude Code, then run `cswap add` in a terminal.\n\n'
+        'No accounts are managed yet. Sign in to Claude Code, then ' +
+          '[save that login](command:claudeSwap.saveLogin).\n\n'
       );
     } else {
       for (const account of model.payload.accounts) {
@@ -317,6 +318,7 @@ export class StatusBar {
       '[Switch account](command:claudeSwap.switchAccount) · ' +
         '[Most quota](command:claudeSwap.switchBest) · ' +
         '[Refresh](command:claudeSwap.refresh) · ' +
+        '[Save login](command:claudeSwap.saveLogin) · ' +
         `[Turn auto-switch ${model.autoSwitchEnabled ? 'off' : 'on'}](command:claudeSwap.toggleAutoSwitch) · ` +
         '[Logs](command:claudeSwap.showLogs)'
     );

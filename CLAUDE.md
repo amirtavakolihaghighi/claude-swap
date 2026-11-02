@@ -12,7 +12,7 @@ This repo is a **fork** of [realiti4/claude-swap](https://github.com/realiti4/cl
 - Added root files: `.gitattributes`, `.editorconfig`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/vscode-extension.yml`.
 - `README.md` is the **one modified upstream file** (a "this is a fork" block after the intro). Expect a conflict there on upstream README changes; keep both sides.
 
-Extension work: `cd vscode-extension && npm test` (compiles + runs 52 tests). Pure logic goes in `src/analysis.ts`, which has no `vscode` import specifically so it is testable with `node --test`.
+Extension work: `cd vscode-extension && npm test` (compiles + runs 67 tests). Pure logic goes in `src/analysis.ts`, which has no `vscode` import specifically so it is testable with `node --test`.
 
 **On this machine:** `uv` is not installed, and `cswap` exists only in this repo's `.venv`. The Python baseline here is **2790 passed, 10 failed, 118 skipped** (2026-11-02, upstream v0.29.0) — all 10 are symlink tests whose *setup* raises `WinError 1314` at `Path.symlink_to`, because Windows blocks symlink creation without Developer Mode. Treat only new failures as real, and check a new one's traceback for `WinError 1314` before blaming a change: upstream's symlink tests grow with its releases (4 → 10 across 0.27–0.29).
 

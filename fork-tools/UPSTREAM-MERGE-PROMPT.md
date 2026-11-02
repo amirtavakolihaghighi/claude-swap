@@ -91,7 +91,7 @@ Please do this, in order:
      over time, so a higher count is not by itself a regression: a failure counts
      as environmental only if its traceback ends in `WinError 1314` at
      `symlink_to`. Treat every other NEW failure as real.
-   - `cd vscode-extension; npm test` (compiles the extension AND runs its 52
+   - `cd vscode-extension; npm test` (compiles the extension AND runs its 67
      analysis tests).
    - The three checks in `fork-tools/verification/` (see its README for how to
      run them), and update the "Measured" lines there with the new results.

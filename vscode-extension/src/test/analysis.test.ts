@@ -23,10 +23,12 @@ import {
   earliestFiveHourReset,
   effectiveUsage,
   formatMinutes,
+  freshSignIns,
   hasHeadroom,
   hiddenModelConstraint,
   recordSample,
   leaseVerdict,
+  saveLoginPlan,
   worstScopedWindow,
 } from '../analysis';
 import { Account, Usage } from '../types';
@@ -546,5 +548,52 @@ describe('describeRefresh', () => {
 
   it('names the other states with the labels the tooltip already uses', () => {
     assert.equal(describeRefresh([account({ usageStatus: 'relogin_required' })], NOW), '#1: needs /login.');
+  });
+});
+
+describe('saveLoginPlan', () => {
+  it('has nothing to save when Claude Code is signed out', () => {
+    assert.deepEqual(saveLoginPlan(null), { kind: 'not-signed-in' });
+  });
+
+  it('adds an account claude-swap does not manage (status carries no number for it)', () => {
+    // The real shape of an unmanaged row: {"email": ..., "managed": false}, nothing else.
+    const active = { email: 'new@example.com', managed: false } as never;
+    assert.deepEqual(saveLoginPlan(active), { kind: 'add', email: 'new@example.com' });
+  });
+
+  it('updates the managed account Claude Code is signed in as', () => {
+    const active = { number: 2, email: 'b@example.com', managed: true, usageStatus: 'ok', usage: null } as never;
+    assert.deepEqual(saveLoginPlan(active), { kind: 'update', number: 2, email: 'b@example.com' });
+  });
+});
+
+describe('freshSignIns', () => {
+  const OLD = '2026-11-23T20:31:01Z';
+  const NEW = '2026-12-02T09:00:00Z';
+  const seenOld = (a = account()) => ({ [`${a.email}|${a.organizationUuid}`]: OLD });
+
+  it('spots a new sign-in on the active account by its expiry moving later', () => {
+    const active = account({ active: true, loginExpiresAt: NEW });
+    const { signedIn, seen } = freshSignIns(seenOld(), [active]);
+    assert.deepEqual(signedIn.map((a) => a.number), [1]);
+    assert.equal(seen['a@example.com|org-1'], NEW);
+  });
+
+  it('ignores an idle account, whose date is the saved copy rather than the live login', () => {
+    const idle = account({ active: false, loginExpiresAt: NEW });
+    assert.deepEqual(freshSignIns(seenOld(), [idle]).signedIn, []);
+  });
+
+  it('stays quiet the first time it sees an account, and while the date holds still', () => {
+    const active = account({ active: true, loginExpiresAt: OLD });
+    assert.deepEqual(freshSignIns({}, [active]).signedIn, []);
+    assert.deepEqual(freshSignIns(seenOld(), [active]).signedIn, []);
+  });
+
+  it('does not offer twice for the same sign-in', () => {
+    const active = account({ active: true, loginExpiresAt: NEW });
+    const first = freshSignIns(seenOld(), [active]);
+    assert.deepEqual(freshSignIns(first.seen, [active]).signedIn, []);
   });
 });

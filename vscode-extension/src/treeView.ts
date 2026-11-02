@@ -13,11 +13,14 @@ import * as vscode from 'vscode';
 import {
   BurnRate,
   bindingWindow,
+  describeFetchError,
   effectiveUsage,
   hiddenModelConstraint,
 } from './analysis';
 import { STATUS_LABELS, describeBurnRate, daysUntil, pct } from './statusBar';
 import { Account, ListPayload, UsageWindow } from './types';
+
+const SAVE_LOGIN: vscode.Command = { command: 'claudeSwap.saveLogin', title: 'Save Current Login' };
 
 const BAR_WIDTH = 12;
 const PCT_DANGER = 90;
@@ -61,7 +64,8 @@ class NoteNode {
   constructor(
     readonly text: string,
     readonly icon?: string,
-    readonly tooltip?: string
+    readonly tooltip?: string,
+    readonly command?: vscode.Command
   ) {}
 }
 
@@ -92,7 +96,8 @@ export class AccountsTreeProvider implements vscode.TreeDataProvider<Node> {
       if (!this.payload || this.payload.accounts.length === 0) {
         return [
           new NoteNode('No accounts managed yet', 'info'),
-          new NoteNode('Run "cswap add" in a terminal', 'terminal'),
+          new NoteNode('Sign in to Claude Code, then click here to save that login', 'key',
+            undefined, SAVE_LOGIN),
         ];
       }
       return this.payload.accounts.map(
@@ -114,7 +119,9 @@ export class AccountsTreeProvider implements vscode.TreeDataProvider<Node> {
         new NoteNode(STATUS_LABELS[account.usageStatus] ?? account.usageStatus, 'circle-slash'),
       ];
       if (account.usageError) {
-        children.push(new NoteNode(`last fetch failed: ${account.usageError}`, 'debug-disconnect'));
+        children.push(
+        new NoteNode(`last check failed: ${describeFetchError(account.usageError)}`, 'debug-disconnect')
+      );
       }
       return children;
     }
@@ -153,7 +160,8 @@ export class AccountsTreeProvider implements vscode.TreeDataProvider<Node> {
         const when = days < 1 ? 'less than a day' : `${Math.floor(days)} days`;
         children.push(
           new NoteNode(`Login expires in ${when}`, 'key',
-            `Run /login as this account, then: cswap add --slot ${account.number}`)
+            'When it does, sign in again as this account, then click here to save the new login',
+            SAVE_LOGIN)
         );
       }
     }
@@ -173,6 +181,9 @@ export class AccountsTreeProvider implements vscode.TreeDataProvider<Node> {
     }
     if (node.tooltip) {
       item.tooltip = node.tooltip;
+    }
+    if (node.command) {
+      item.command = node.command;
     }
     return item;
   }

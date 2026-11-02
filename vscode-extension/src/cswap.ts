@@ -263,6 +263,29 @@ export async function mapDirectory(target: string, directory: string): Promise<s
   return (stdout.trim() || stderr.trim()).replace(/\s+/g, ' ');
 }
 
+/**
+ * Save Claude Code's current login: `cswap add` with no slot. It updates the
+ * signed-in account in place, or adds it when claude-swap does not know it, and
+ * asks nothing — only `--slot` can prompt. `add` has no `--json` (cli.py accepts
+ * that only for list, status and switch), so success is the exit code, and a
+ * failure is the "Error: …" line cswap prints to stderr.
+ */
+export async function saveCurrentLogin(): Promise<void> {
+  log('run: cswap add');
+  const { code, stdout, stderr } = await exec(['add'], 90_000);
+  if (code !== 0) {
+    const lines = `${stderr}\n${stdout}`
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const detail =
+      lines.find((line) => line.startsWith('Error:')) ??
+      (lines.join(' ') || `cswap exited with code ${code}`);
+    throw new CswapError(detail.replace(/^Error:\s*/, ''), code);
+  }
+  log(`add: ${stdout.trim().replace(/\s+/g, ' ')}`);
+}
+
 /** The configured auto-switch threshold, for display. Best-effort. */
 export async function autoSwitchThreshold(): Promise<number | undefined> {
   try {

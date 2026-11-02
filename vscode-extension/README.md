@@ -39,6 +39,12 @@ Auto-Switch*.
 **Rescue** — for when a limit already interrupted you. Switches to the best account
 and reloads the window in one step, so the open Claude tab picks up the new login.
 
+**Save current login** — after you sign in to Claude again (a login lasts about 30
+days) or with a new account, one click stores that login in claude-swap, so
+switching back to it keeps working. The key icon at the top of the sidebar, *Save
+login* in the hover box, or *Claude Swap: Save Current Login*. It also offers
+itself when it notices a sign-in it may not have saved.
+
 ### Things it tells you that you would otherwise find out the hard way
 
 - **A per-model limit is your real limit.** You can be blocked by the weekly Fable
@@ -52,7 +58,8 @@ and reloads the window in one step, so the open Claude tab picks up the new logi
   minutes: "burning ~9%/h · about 2h 40m of headroom". Useful before starting
   something long.
 - **A login is about to expire.** Stored logins eventually die and need a browser to
-  fix. You get a few days' warning instead of discovering it when you switch.
+  fix. You get a few days' warning instead of discovering it when you switch, and
+  once you have signed in again it offers to save the new login.
 - **A weekly budget will not last.** When an account is projected to exhaust its
   weekly quota before it resets. A rough linear projection — treated as a hint, not
   a fact, which is why the CLI keeps it out of its own output.

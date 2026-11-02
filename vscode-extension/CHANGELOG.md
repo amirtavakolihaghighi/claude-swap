@@ -10,6 +10,35 @@ This file covers **the extension only**. The core `cswap` CLI is maintained
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-02
+
+### Added
+
+- **Save Current Login** — after signing in to Claude again, or with a new
+  account, one click stores that login in claude-swap. It runs `cswap add`, which
+  updates the signed-in account in place, or adds it when claude-swap does not
+  know it, and refuses a login that does not match the signed-in account. Offered
+  as the key icon in the sidebar's title bar, *Save login* in the hover box, and
+  the command palette.
+- **It offers itself.** A fresh sign-in to a known account moves that account's
+  `loginExpiresAt` later — the date is otherwise fixed for a login's whole life —
+  and a sign-in to an account claude-swap does not know leaves no account active.
+  Either way a notification offers to save it. claude-swap often saves a fresh
+  sign-in by itself, but only once Anthropic confirms whose it is, and on a flaky
+  connection that check often fails.
+
+### Changed
+
+- Every "run `cswap add` in a terminal" instruction now points to the button: the
+  sidebar, the hover box, the login-expiry warning and the account picker.
+- The sidebar's failed-check line uses the plain words the hover box got in 0.1.2.
+
+### Fixed
+
+- The account picker, *Bind This Folder* and *How Fast Am I Using Quota?* load
+  data first when there is none yet, and since 0.1.2 that popped up the Refresh
+  summary as well. Only the Refresh command reports now.
+
 ## [0.1.2] - 2026-11-02
 
 ### Changed
@@ -124,7 +153,8 @@ First working version.
   interleaving, and the leader lease elected exactly 1 leader from 8 simultaneous
   processes across 5 consecutive runs.
 
-[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.1.2...HEAD
+[Unreleased]: https://github.com/amirtavakolihaghighi/claude-swap/compare/vscode-extension-v0.1.3...HEAD
+[0.1.3]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.3
 [0.1.2]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.2
 [0.1.1]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.1
 [0.1.0]: https://github.com/amirtavakolihaghighi/claude-swap/releases/tag/vscode-extension-v0.1.0

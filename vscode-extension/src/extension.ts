@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
-import { BurnRate, afterSwitchNotice, describeRefresh } from './analysis';
+import {
+  BurnRate,
+  SaveLoginPlan,
+  afterSwitchNotice,
+  describeRefresh,
+  saveLoginPlan,
+} from './analysis';
 import { AutoSwitcher } from './autoSwitch';
 import * as cswap from './cswap';
 import { CswapError, CswapNotFoundError } from './cswap';
@@ -40,7 +46,8 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar,
     autoSwitcher,
     vscode.window.registerTreeDataProvider('claudeSwap.accounts', tree),
-    vscode.commands.registerCommand('claudeSwap.refresh', () => refresh(true)),
+    vscode.commands.registerCommand('claudeSwap.refresh', () => refresh(true, true)),
+    vscode.commands.registerCommand('claudeSwap.saveLogin', saveLogin),
     vscode.commands.registerCommand('claudeSwap.switchAccount', switchAccount),
     vscode.commands.registerCommand('claudeSwap.switchBest', switchBest),
     vscode.commands.registerCommand('claudeSwap.switchToAccount', (target?: string) =>
@@ -117,15 +124,17 @@ function render(): void {
 /**
  * Refresh the account list. `interactive` means the user asked directly, so
  * failures are surfaced as notifications rather than only logged — a background
- * tick that fails because the laptop is offline should not pop a dialog — and the
- * result is reported even when no number changed, because a click that changes
- * nothing on screen reads as a click that did nothing.
+ * tick that fails because the laptop is offline should not pop a dialog.
+ * `report` (the Refresh command only) also says what was found, even when no
+ * number changed, because a click that changes nothing on screen reads as a click
+ * that did nothing. Commands that merely need data loaded first pass `interactive`
+ * alone: a usage summary popping up over the account picker answers nothing.
  *
  * A click while a refresh is already running joins it. It used to return at once
  * without a word, which was one way "Refresh does nothing" happened: a `cswap list`
  * waiting out a network timeout can take many seconds.
  */
-async function refresh(interactive = false): Promise<void> {
+async function refresh(interactive = false, report = false): Promise<void> {
   if (interactive) {
     statusBar.setBusy('Checking usage…');
   } else if (inFlight) {
@@ -141,8 +150,10 @@ async function refresh(interactive = false): Promise<void> {
     handleFailure(result.error, interactive);
     return;
   }
-  if (interactive && lastPayload) {
+  if (interactive) {
     render(); // clears the busy text, whichever caller started the load
+  }
+  if (report && lastPayload) {
     void vscode.window.showInformationMessage(
       `Claude Swap: ${describeRefresh(lastPayload.accounts, Date.now())}`
     );
@@ -162,6 +173,7 @@ async function load(): Promise<LoadResult> {
     history.observe(payload.accounts);
     render();
     notices.check(payload, threshold ?? DEFAULT_THRESHOLD);
+    void notices.checkSignIns(payload, cswap.status);
     return { ok: true };
   } catch (err) {
     logError('refresh', err); // here, not in handleFailure: a joined load fails once
@@ -241,9 +253,13 @@ async function switchAccount(): Promise<void> {
   }
   const payload = lastPayload;
   if (!payload || payload.accounts.length === 0) {
-    void vscode.window.showInformationMessage(
-      'Claude Swap: no accounts are managed yet. Log into Claude Code, then run "cswap add" in a terminal.'
+    const choice = await vscode.window.showInformationMessage(
+      'Claude Swap: no accounts are managed yet. Sign in to Claude Code, then save that login.',
+      'Save current login'
     );
+    if (choice === 'Save current login') {
+      await saveLogin();
+    }
     return;
   }
 
@@ -357,6 +373,80 @@ async function rescue(): Promise<void> {
     );
     render();
   }
+}
+
+/**
+ * Save Claude Code's current login into claude-swap: `cswap add` with no slot, which
+ * updates the signed-in account in place, or adds it when claude-swap does not know
+ * it, and refuses a login that does not belong to the signed-in account. It is the
+ * step cswap's own instructions give after signing in again ("/login, then cswap
+ * add"), minus the terminal. `confirmed` skips the "add a new account?" question
+ * when the user has just answered it in an offer from Notices.
+ */
+async function saveLogin(options?: { confirmed?: boolean }): Promise<void> {
+  let plan: SaveLoginPlan;
+  try {
+    plan = saveLoginPlan((await cswap.status()).active);
+  } catch (err) {
+    reportSaveFailure(err);
+    return;
+  }
+  if (plan.kind === 'not-signed-in') {
+    void vscode.window.showInformationMessage(
+      'Claude Swap: Claude Code is not signed in. Sign in in a Claude tab first, then save the login.'
+    );
+    return;
+  }
+  if (plan.kind === 'add' && !options?.confirmed) {
+    const choice = await vscode.window.showInformationMessage(
+      `Add ${plan.email} to Claude Swap?`,
+      {
+        modal: true,
+        detail:
+          "Claude Code is signed in with an account Claude Swap doesn't know yet. " +
+          'Adding it lets you switch to it and see its usage.',
+      },
+      'Add account'
+    );
+    if (choice !== 'Add account') {
+      return;
+    }
+  }
+
+  statusBar.setBusy('Saving login…');
+  try {
+    await cswap.saveCurrentLogin();
+  } catch (err) {
+    reportSaveFailure(err);
+    await refresh();
+    return;
+  }
+  if (plan.kind === 'update') {
+    void vscode.window.showInformationMessage(
+      `Claude Swap: saved the current login for #${plan.number} (${plan.email}). ` +
+        `Switching back to #${plan.number} will use it.`
+    );
+  } else {
+    // Only cswap knows which slot it chose; ask, but a failure here is not a
+    // failure of the save that already succeeded.
+    const added = await cswap.status().then((s) => saveLoginPlan(s.active), () => undefined);
+    const slot = added?.kind === 'update' ? ` as account #${added.number}` : '';
+    void vscode.window.showInformationMessage(`Claude Swap: added ${plan.email}${slot}.`);
+  }
+  await refresh();
+}
+
+function reportSaveFailure(err: unknown): void {
+  logError('save login', err);
+  const message = err instanceof Error ? err.message : String(err);
+  void vscode.window
+    .showErrorMessage(`Claude Swap: could not save the login — ${message}`, 'Show logs')
+    .then((choice) => {
+      if (choice === 'Show logs') {
+        showLog();
+      }
+    });
+  render();
 }
 
 async function toggleAutoSwitch(): Promise<void> {

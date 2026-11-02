@@ -8,12 +8,26 @@
  */
 
 import * as vscode from 'vscode';
-import { earliestFiveHourReset, formatMinutes, hasHeadroom, hiddenModelConstraint } from './analysis';
+import {
+  earliestFiveHourReset,
+  formatMinutes,
+  freshSignIns,
+  hasHeadroom,
+  hiddenModelConstraint,
+  SaveLoginPlan,
+  saveLoginPlan,
+} from './analysis';
 import { effectiveUsage } from './statusBar';
 import { log } from './log';
-import { Account, ListPayload } from './types';
+import { Account, ListPayload, StatusPayload } from './types';
 
 const DAY_MS = 86_400_000;
+
+/** globalState key for the last loginExpiresAt seen per account (see freshSignIns). */
+const SEEN_LOGIN_EXPIRY_KEY = 'signIns:loginExpiresAt';
+
+/** An unknown signed-in account can stay unknown for hours; ask `status` this rarely. */
+const UNKNOWN_LOGIN_CHECK_MS = 5 * 60_000;
 
 function daysUntil(iso: string): number | undefined {
   const then = Date.parse(iso);
@@ -32,6 +46,8 @@ export class Notices {
    * after a window reload the fresh reading is the truth, not a remembered state.
    */
   private allSpent = false;
+
+  private lastUnknownLoginCheck = 0;
 
   /** Identity, not slot number: slots get reused when accounts are re-added. */
   private key(kind: string, account: Account): string {
@@ -64,6 +80,74 @@ export class Notices {
     }
 
     this.checkExhaustion(payload, threshold, resetAlarm);
+  }
+
+  /**
+   * Offer *Save Current Login* when Claude Code holds a login claude-swap may not
+   * have saved: a fresh sign-in to an account it knows, or one it does not know.
+   *
+   * cswap usually saves a fresh sign-in by itself, but only once Anthropic has
+   * confirmed whose it is, and it leaves everything untouched when that check
+   * fails (`_self_switch_action` in switcher.py). On a flaky connection that is
+   * often, and the cost shows up later: the next switch back to that account hands
+   * Claude a login that no longer works, and it asks you to sign in again.
+   */
+  async checkSignIns(
+    payload: ListPayload,
+    readStatus: () => Promise<StatusPayload>
+  ): Promise<void> {
+    const { signedIn, seen } = freshSignIns(
+      this.context.globalState.get<Record<string, string>>(SEEN_LOGIN_EXPIRY_KEY) ?? {},
+      payload.accounts
+    );
+    await this.context.globalState.update(SEEN_LOGIN_EXPIRY_KEY, seen);
+    for (const account of signedIn) {
+      log(`notice: fresh sign-in to account ${account.number}`);
+      this.offerSave(
+        `Claude Swap: you signed in to account #${account.number} (${account.email}) again. ` +
+          `Save the new login, so switching back to #${account.number} keeps working?`,
+        'Save login'
+      );
+    }
+
+    // No managed account is active: Claude is signed out, or signed in to an
+    // account claude-swap does not know. Only `status` can tell which.
+    if (payload.accounts.some((a) => a.active)) {
+      return;
+    }
+    if (Date.now() - this.lastUnknownLoginCheck < UNKNOWN_LOGIN_CHECK_MS) {
+      return;
+    }
+    this.lastUnknownLoginCheck = Date.now();
+    let plan: SaveLoginPlan;
+    try {
+      plan = saveLoginPlan((await readStatus()).active);
+    } catch {
+      return; // the refresh that called us reports cswap failures already
+    }
+    if (plan.kind !== 'add') {
+      return;
+    }
+    const key = `notice:unknown-login:${plan.email}`;
+    if (this.alreadySaidToday(key)) {
+      return;
+    }
+    log(`notice: Claude is signed in to an account claude-swap does not know`);
+    this.markSaid(key);
+    this.offerSave(
+      `Claude Swap: Claude Code is signed in as ${plan.email}, which Claude Swap doesn't ` +
+        'know yet. Add it, so you can switch to it and see its usage?',
+      'Add account'
+    );
+  }
+
+  private offerSave(message: string, action: string): void {
+    void vscode.window.showInformationMessage(message, action, 'Not now').then((choice) => {
+      if (choice === action) {
+        // The click already answered "add this account?", so don't ask it again.
+        void vscode.commands.executeCommand('claudeSwap.saveLogin', { confirmed: true });
+      }
+    });
   }
 
   /**
@@ -180,22 +264,19 @@ export class Notices {
     log(`notice: account ${account.number} login ${when}`);
     this.markSaid(key);
 
-    void vscode.window
-      .showWarningMessage(
-        `Claude Swap: account #${account.number} (${account.email}) ${when}. ` +
-          'Log into Claude Code with it, then re-add it to refresh the stored token.',
-        'How do I fix it?',
-        'Dismiss'
-      )
-      .then((choice) => {
-        if (choice === 'How do I fix it?') {
-          void vscode.window.showInformationMessage(
-            `In Claude Code run /login and sign in as ${account.email}, then in a terminal run: ` +
-              `cswap add --slot ${account.number}`,
-            { modal: true }
-          );
-        }
-      });
+    // No terminal step any more: once the user has signed in again, checkSignIns
+    // notices the new login and offers to save it.
+    const signIn = `sign in as ${account.email}`;
+    const next =
+      days >= 0
+        ? `When it does, Claude will ask you to sign in${account.active ? '' : ` the next time you use #${account.number}`}: ${signIn}.`
+        : account.active
+          ? `Claude will ask you to sign in: ${signIn}.`
+          : `To use it again, type /login in a Claude tab and ${signIn}.`;
+    void vscode.window.showWarningMessage(
+      `Claude Swap: account #${account.number}'s login ${when}. ${next} ` +
+        'Claude Swap will then offer to save the new login.'
+    );
   }
 
   /**

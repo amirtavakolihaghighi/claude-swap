@@ -2,7 +2,7 @@
   "name": "claude-swap-vscode",
   "displayName": "Claude Swap",
   "description": "Switch Claude Code accounts from the VS Code status bar, with live usage and optional background auto-switching.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "amirtavakolihaghighi",
   "license": "MIT",
   "repository": {
@@ -44,6 +44,11 @@
       {
         "command": "claudeSwap.refresh",
         "title": "Claude Swap: Refresh Usage Now"
+      },
+      {
+        "command": "claudeSwap.saveLogin",
+        "title": "Claude Swap: Save Current Login",
+        "icon": "$(key)"
       },
       {
         "command": "claudeSwap.toggleAutoSwitch",
@@ -162,6 +167,11 @@
         },
         {
           "command": "claudeSwap.switchBest",
+          "when": "view == claudeSwap.accounts",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeSwap.saveLogin",
           "when": "view == claudeSwap.accounts",
           "group": "navigation"
         },

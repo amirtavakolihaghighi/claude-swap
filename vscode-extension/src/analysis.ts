@@ -9,7 +9,7 @@
  * `resetsAt` timestamp.
  */
 
-import { Account, Usage, UsageStatus, UsageWindow } from './types';
+import { Account, StatusPayload, Usage, UsageStatus, UsageWindow } from './types';
 
 /** A recorded observation of one account, for rate-of-change analysis. */
 export interface UsageSample {
@@ -498,6 +498,67 @@ export function describeRefresh(accounts: Account[], nowMs: number): string {
     sentences.push(CADENCE_NOTE);
   }
   return sentences.join(' ');
+}
+
+// ---------------------------------------------------------------------------
+// Saving Claude Code's current login
+// ---------------------------------------------------------------------------
+
+/** What *Save Current Login* would do, read from `cswap status --json`. */
+export type SaveLoginPlan =
+  | { kind: 'not-signed-in' }
+  | { kind: 'update'; number: number; email: string }
+  | { kind: 'add'; email: string };
+
+/**
+ * `cswap add` with no slot updates the account Claude Code is signed in as, or adds
+ * it when claude-swap does not know it (`add_account` in switcher.py). `status`
+ * tells the two apart: `active` is null when nobody is signed in, and carries
+ * `managed: false` and no number for an account claude-swap does not manage.
+ */
+export function saveLoginPlan(active: StatusPayload['active']): SaveLoginPlan {
+  if (!active || !active.email) {
+    return { kind: 'not-signed-in' };
+  }
+  if (active.managed === false || typeof active.number !== 'number') {
+    return { kind: 'add', email: active.email };
+  }
+  return { kind: 'update', number: active.number, email: active.email };
+}
+
+/** How much later a login's expiry must move to count as a new sign-in. */
+const SIGN_IN_JUMP_MS = 86_400_000;
+
+/**
+ * Accounts signed in to afresh since the expiry dates in `seen`, and the dates to
+ * remember for next time.
+ *
+ * A login's `loginExpiresAt` is fixed for its whole life — measured 2026-11-02:
+ * account #2, signed in on Oct 27 at 12:34Z, still read 2026-11-26T12:34:07Z
+ * after five token rotations — so the date moving later means a new sign-in. Only
+ * the active row is judged, because only its date comes from Claude Code's live
+ * login; every other row reads claude-swap's saved copy (`_accounts_info` in
+ * switcher.py), which moving means the new login was already saved.
+ */
+export function freshSignIns(
+  seen: Record<string, string>,
+  accounts: Account[]
+): { signedIn: Account[]; seen: Record<string, string> } {
+  const next = { ...seen };
+  const signedIn: Account[] = [];
+  for (const account of accounts) {
+    if (!account.loginExpiresAt) {
+      continue;
+    }
+    const key = accountKey(account);
+    const before = Date.parse(seen[key] ?? '');
+    const now = Date.parse(account.loginExpiresAt);
+    if (account.active && Number.isFinite(before) && now - before > SIGN_IN_JUMP_MS) {
+      signedIn.push(account);
+    }
+    next[key] = account.loginExpiresAt;
+  }
+  return { signedIn, seen: next };
 }
 
 /** "2h 40m", "45m", "less than a minute" — for durations we compute ourselves. */
